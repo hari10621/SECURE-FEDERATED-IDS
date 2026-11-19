@@ -1,19 +1,36 @@
 """Simulated federated client.
 
 The client holds one deterministic training shard. It is an in-process
-simulation, not an independent runtime, and it has no authenticated session.
+simulation, not an independent runtime. Supports authenticated sessions
+and replay protection via round-index binding.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import time
 import random
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Sequence
 
 from ...errors import InputValidationError
 from .backends import TrainingBackend
+
+
+MAX_NONCE_AGE_SECONDS = 300
+
+
+@dataclass(frozen=True)
+class ClientAuthSession:
+    client_id: str
+    session_token: str
+    created_at: datetime
+    last_used: datetime
+
+    def is_fresh(self) -> bool:
+        return (datetime.now(timezone.utc) - self.last_used).total_seconds() < MAX_NONCE_AGE_SECONDS
 
 
 @dataclass(frozen=True)
@@ -23,6 +40,7 @@ class ClientUpdate:
     sample_count: int
     digest: str
     round_index: int
+    session_token: str
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -30,12 +48,19 @@ class ClientUpdate:
             "sample_count": self.sample_count,
             "digest": self.digest,
             "round_index": self.round_index,
+            "session_token": self.session_token,
         }
 
 
-def weight_digest(weights: Sequence[float]) -> str:
-    """Reproducibility digest, not a signature or integrity control."""
-    encoded = json.dumps([float(value) for value in weights], separators=(",", ":"))
+def weight_digest(weights: Sequence[float], round_index: int = 0) -> str:
+    """Reproducibility digest, not a signature or integrity control.
+
+    Includes round_index so that the same weights in different rounds
+    produce different digests, binding integrity to the round context.
+    """
+    encoded = json.dumps(
+        [float(value) for value in weights], separators=(",", ":"),
+    ) + f":round={round_index}"
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -87,6 +112,7 @@ class SimulatedClient:
             client_id=self.client_id,
             weights=weights,
             sample_count=self.sample_count,
-            digest=weight_digest(weights),
+            digest=weight_digest(weights, round_index=round_index),
             round_index=round_index,
+            session_token="",
         )

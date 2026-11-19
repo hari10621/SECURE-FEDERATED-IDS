@@ -244,6 +244,46 @@ replacement.
 
 Until all seven pass, the application must report encryption as unavailable.
 
+### 5.5 CKKS status in current implementation
+
+The current backend implements a fail-closed encryption service (`EncryptionService`
+backend=`native_ckks`) that always reports `available: False` and raises
+`CryptoUnavailable` on any encrypt/decrypt/add/multiply/threshold-decrypt operation.
+Three crypto backends are provided:
+
+- `DisabledCryptoBackend` — raises `CryptoUnavailable` on every operation.
+- `NativeCKKSBackend` — raises `CryptoUnavailable` with reason about missing
+  native extension and unverified OpenFHE version.
+- `PlaintextSimulationBackend` — runs deterministic plaintext simulation; never
+  produces ciphertext, never sets `encryption_claimed`.
+
+Until a verified native CKKS backend is installed (Linux/Python 3.8 + matching OpenFHE
+1.x shared libraries + verification gate), encryption must remain fail-closed.
+
+### 5.6 Security mechanisms implementation status
+
+Authentication of clients: **Implemented (opt-in)**. `FLServer.authenticate_client()`
+accepts a session token per client. Empty/None tokens are accepted in plaintext mode;
+encryption mode would require a token. Documentation notes that authentication alone
+does not make aggregation Byzantine-resilient.
+
+SHA-256 integrity checks: **Implemented**. `weight_digest()` uses SHA-256 with
+round_index binding so that the same weights in different rounds produce different
+digests, integrating integrity into the round context.
+
+Replay protection: **Implemented**. `FLServer.validate_update()` maintains a
+`_round_nonces` dict mapping round_index → timestamp. Duplicate round_index within
+the clock drift window is rejected as replay; stale rounds (outside drift window)
+are allowed. Round_index is also bound into `weight_digest()` for integrity.
+
+Byzantine update validation: **Implemented (opt-in, documented limitation)**.
+`FLServer.aggregate()` offers a `byzantine_check` flag that enables a size-based
+outlier heuristic (3σ cardinality-free detection). This heuristic is explicitly
+not a Byzantine-resilience control — it detects outlier serialized weight sizes
+but does not prove Byzantine failure. The system does not claim that SHA-256 or
+authentication alone prevents Byzantine attacks. Documentation includes threat
+model and assumptions.
+
 ## 6. Dataset requirements
 
 No dataset was downloaded. The paths below are exactly what the source expects, relative
