@@ -13,6 +13,11 @@ Purpose: resume the SecureFed-IDS integration work in a new session without repe
 - User Phase 5: complete for implementation and synthetic verification (dataset loading + Keras GRU + federated training + artifacts). No approved real dataset or full-scale training run has been performed.
 - Original-plan Phase 5 (independent client runtime) remains not started.
 - Original research repository remains clean and read-only at commit `69b9ba9`.
+- Phase 6 (2026-11-19): security mechanisms implemented and verified; CKKS remains BLOCKED/UNAVAILABLE.
+  - 6A — CKKS encryption: native true_threshold_ckks extension is Linux/CPython 3.8-only; source missing; fail-closed EncryptionService reports available: False. Three backends provided (Disabled, NativeCKKS [unavailable], PlaintextSimulation). Never simulate CKKS.
+  - 6B — Security mechanisms: opt-in client authentication, SHA-256 integrity with round_index binding, replay protection via round_index freshness check, and opt-in Byzantine size-based outlier heuristic (explicitly not a Byzantine-resilience control). 5 new unit tests all pass.
+  - Documentation updated: FEATURE_MATRIX.md rows 32/41/42/43, DEPENDENCY_REPORT.md sections 5.5/5.6, server.py threat model docstring.
+  Do not proceed to Phase 7 (SDN integration) without explicit approval.
 
 Read this file first, then:
 1. `web/INTEGRATION_PLAN.md` sections 12 and 13.
