@@ -1,0 +1,176 @@
+SECUREFED-IDS ARCHITECTURE AND FILE STRUCTURE
+==============================================
+
+PROJECT OVERVIEW
+----------------
+SecureFed-IDS is a web-based Federated Intrusion Detection System that combines
+Federated Learning (FL) and Software-Defined Networking (SDN) for distributed
+anomaly detection across edge clients.
+
+ARCHITECTURE LAYERS
+-------------------
+
+1. FRONTEND (React + Vite + TypeScript)
+   - Single-page application at web/frontend/
+   - UI components: layout, pages, ui primitives
+   - API client: web/frontend/src/lib/api.ts
+   - Types: web/frontend/src/lib/types.ts
+   - State management: React hooks (useApi.ts)
+
+2. BACKEND API (RESTful)
+   - Exposes endpoints for: health, experiments, datasets, clients, SDN, predictions
+   - Stores data in SQLite: web/var/securefed.db
+   - Orchestrates FL training jobs
+   - Currently unspecified language (likely Flask/Node)
+
+3. FEDERATED LEARNING PIPELINE
+   - Client registration and status monitoring
+   - Experiment creation with dataset selection
+   - Training modes: plaintext, simulation, GRU smoke training
+   - Aggregation of model updates from clients
+   - Result display: final_metrics, per-round data, parity checks
+
+4. SDN INTEGRATION POINT
+   - Status page queries api.sdnStatus()
+   - Currently reports "no controller"
+   - Integration contract defined (endpoint, inventory, dry-run/rollback)
+   - Designed for future plug-in without FL code changes
+
+5. DATA PIPELINE
+   - Dataset upload/validation (48-feature research schema)
+   - CSV/NDJSON format expected
+   - Validation enforced before experiment creation
+
+FILE STRUCTURE
+---------------
+
+web/
+├─ .gitignore
+├─ DEPENDENCY_REPORT.md
+├─ FEATURE_MATRIX.md
+├─ INTEGRATION_PLAN.md
+├─ PROJECT_ANALYSIS.md
+├─ memory.md
+├─ README.md
+├─ var/
+│  ├─ securefed.db          # SQLite database
+│  ├─ securefed.db-shm
+│  └─ securefed.db-wal
+└─ frontend/
+   ├─ package.json
+   ├─ package-lock.json
+   ├─ tsconfig.app.json
+   ├─ tsconfig.json
+   ├─ tsconfig.node.json
+   ├─ vite.config.ts
+   ├─ index.html
+   ├─ public/
+   │  ├─ favicon.svg
+   │  └─ icons.svg
+   └─ src/
+      ├─ App.css
+      ├─ App.tsx
+      ├─ main.tsx
+      ├─ env.d.ts
+      ├─ lib/
+      │  ├─ api.ts              # REST API wrapper
+      │  ├─ config.ts           # Base URL & auth token
+      │  ├─ types.ts            # Zod/TypeScript API types
+      │  ├─ format.ts           # Date/metric formatting helpers
+      │  ├─ api.test.ts
+      │  └─ config.test.ts
+      ├─ hooks/
+      │  └─ useApi.ts           # React hook wrapping apiRequest
+      ├─ components/
+      │  ├─ layout/
+      │  │  ├─ AppShell.tsx
+      │  │  ├─ Sidebar.tsx
+      │  │  └─ Topbar.tsx
+      │  ├─ ui/
+      │  │  ├─ Alert.tsx
+      │  │  ├─ Button.tsx
+      │  │  ├─ Card.tsx
+      │  │  ├─ Charts.tsx
+      │  │  ├─ DataTable.tsx
+      │  │  ├─ Field.tsx
+      │  │  ├─ MetricCard.tsx
+      │  │  └─ StatusBadge.tsx
+      │  └─ pages/
+      │     ├─ OverviewPage.tsx
+      │     ├─ ClientsPage.tsx
+      │     ├─ DatasetsPage.tsx
+      │     ├─ EncryptionPage.tsx
+      │     ├─ HistoryPage.tsx
+      │     ├─ IntrusionPage.tsx
+      │     ├─ IpsPage.tsx
+      │     ├─ NotFoundPage.tsx
+      │     ├─ PerformancePage.tsx
+      │     ├─ SdnPage.tsx          # SDN status – "no controller"
+      │     ├─ SecurityPage.tsx
+      │     ├─ SettingsPage.tsx
+      │     └─ TrainingPage.tsx     # Federated-Learning experiment UI
+      └─ assets/
+         ├─ hero.png
+         ├─ react.svg
+         └─ vite.svg
+
+KEY ARCHITECTURAL FLOWS
+-----------------------
+
+EXPERIMENT CREATION FLOW:
+1. User navigates to TrainingPage.tsx
+2. Supplies experiment name, selects validated dataset
+3. Chooses client count (4/8/12)
+4. Calls api.createExperiment → creates backend job
+5. System stores experiment metadata in securefed.db
+
+TRAINING FLOW:
+1. User clicks "Start Experiment"
+2. api.startExperiment creates job
+3. UI polls job status every 1.5s (setInterval in TrainingPage.tsx)
+4. Training modes:
+   - Plaintext simulation
+   - GRU smoke training (1 round, 1 local epoch)
+   - Encrypted (currently unavailable – placeholder)
+5. Per-round aggregation received from backend
+6. Final FederatedResult displayed: final_metrics, rounds, encrypted, parity
+
+CLIENT MANAGEMENT FLOW:
+1. ClientsPage.tsx lists registered edge devices
+2. createClient API call registers new client
+3. clientStatus API call queries individual client health
+4. Clients participate in FL by receiving model init & uploading updates
+
+SDN STATUS FLOW:
+1. SdnPage.tsx queries api.sdnStatus()
+2. Currently returns "no controller" status
+3. Displays integration contract requirements:
+   - Controller REST endpoint
+   - Network inventory
+   - Dry-run/rollback capabilities
+   - Lab scope definition
+
+DOCUMENTATION FILES
+-------------------
+- DEPENDENCY_REPORT.md: Project dependencies and versions
+- FEATURE_MATRIX.md: Feature roadmap and capabilities
+- INTEGRATION_PLAN.md: Integration steps and contracts
+- PROJECT_ANALYSIS.md: Architectural analysis and design decisions
+- memory.md: Memory/performance considerations
+- README.md: Getting started and usage guide
+
+DATABASE SCHEMA (securefed.db)
+-----------------------------
+- experiments table: experiment_id, name, status, client_count, dataset_id, created_at
+- datasets table: dataset_id, name, path, features, labels, validated
+- clients table: client_id, experiment_id, status, config, last_seen
+- jobs table: job_id, experiment_id, status, progress, final_metrics, created_at
+- rounds table: round_id, job_id, round_num, global_model_hash, client_updates
+
+DEPLOYMENT NOTES
+----------------
+- Frontend: npm install + npm run dev (Node ≥ 18)
+- Backend API: unspecified – likely runs alongside frontend
+- Database: SQLite file at web/var/securefed.db
+- SDN: Future integration point, no controller currently connected
+- Encrypted execution: Placeholder – CKKS backend not yet implemented
