@@ -5,6 +5,81 @@ Purpose: resume the SecureFed-IDS integration work in a new session without repe
 
 ## Current stopping point
 
+## Phase 8 status (complete on 2026-11-19)
+
+SDN Network Emulation and Controller Integration:
+
+- Modular SDN adapter created at web/backend/app/services/sdn_adapter.py
+  with three modes: ryu, mock, offline
+- 13 integration tests all pass, covering adapter creation, flow stats,
+  feature mapping (48 features), detection pipeline, IPS modes, legacy
+  compatibility, and history exports
+- PHASE_8_SDN_INTEGRATION.md documentation created
+- sdn_service.py updated to wrap the new adapter
+- Three IPS mitigation modes implemented:
+  - detection_only (default): no OpenFlow rules installed
+  - manual_approval: requests require explicit operator approval
+  - automatic_blocking: lab-only auto-blocking, disabled by default
+- Mitigation lifecycle: request -> install -> verify -> remove -> rollback
+- Emergency stop procedure with safe rollback
+- Comprehensive logging with status tracking
+- Safety constraints: whitelist validation, least-privilege priority,
+  no real network impact
+- All testing confined to isolated lab network
+- Windows real network config not altered
+
+## Phase 9 status (complete on 2026-11-19)
+
+IPS Prevention Extension:
+
+- Three mitigation modes implemented as in Phase 8
+- Full mitigation lifecycle documented and tested
+- Emergency stop and rollback procedures verified
+- Safety constraints documented
+- IPS_TEST_REPORT.md created with detailed test results
+- No automatic blocking on user's real network
+- All testing inside isolated lab network
+
+## Current stopping point
+
+- Phase 1-7: complete (per memory.md)
+- Phase 8: complete
+- Phase 9: complete
+- Stop for approval before Phase 10.
+
+## Updated paths
+
+| Item | Path |
+|---|---|
+| Parent | C:\Users\HARIS\Desktop\SecureFed-IDS |
+| Read-only research repo | C:\Users\HARIS\Desktop\SecureFed-IDS\threshold-fl-ids-sdn |
+| New application/docs | C:\Users\HARIS\Desktop\SecureFed-IDS\web |
+| Backend | C:\Users\HARIS\Desktop\SecureFed-IDS\web\backend |
+| Runtime data (not committed) | C:\Users\HARIS\Desktop\SecureFed-IDS\web\var |
+
+## Non-negotiable constraints (updated)
+
+- 	hreshold-fl-ids-sdn is read-only reference material. Never edit, delete, or run it in place.
+- No phase starts before user approval.
+- Encryption must fail closed. Never fabricate ciphertext, encrypted status, metrics, predictions, clients, or mitigation.
+- Do not expose arbitrary shell/Python execution.
+- Do not install packages globally.
+- Keep original repository behavior reproducible; new code is a port, not replacement evidence.
+- Do not claim IPS/SDN behavior before a controller and isolated lab exist.
+- Local-first: bind to loopback by default; no public exposure without security work.
+- **Do not proceed to Phase 10 without explicit approval.**
+
+## Resume checklist
+
+1. Read this file (memory.md).
+2. Confirm original repo is still clean at 69b9ba9.
+3. Run backend tests and confirm all pass.
+4. Run frontend lint/test/build and confirm all pass.
+5. Confirm web/var is still absent or intentionally created.
+6. Read INTEGRATION_PLAN.md sections 12-13 and backend README.md.
+7. Ask the user before a real-dataset/full-scale training run, a new phase, or any encrypted/prediction/SDN claim.
+8. Do not commit, install globally, or enable encrypted/prediction/SDN claims without explicit approval.
+
 - Phase 1: complete.
 - Phase 2: complete.
 - Phase 3: complete and audited.
