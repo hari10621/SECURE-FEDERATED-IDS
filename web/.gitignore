@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.venv-*/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local runtime state: databases, uploaded datasets, run workspaces, models, keys
+backend/var/
+backend/var*/
+*.db
+*.sqlite
+*.sqlite3
+
+# Node/frontend (reserved for later phases)
+node_modules/
+dist/
+build/
+.vite/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example

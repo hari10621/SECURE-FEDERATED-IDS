@@ -1,0 +1,5 @@
+# Optional plaintext GRU training runtime.
+# TensorFlow 2.13.1 supports Python 3.8-3.11; verification used Python 3.11.18.
+# Keep this separate from the lightweight API runtime.
+-r requirements.txt
+tensorflow-cpu==2.13.1
