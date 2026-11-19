@@ -1,0 +1,553 @@
+SECUREFED-IDS — PHASE-BY-PHASE DEVELOPMENT PROMPTS
+
+HOW TO USE THIS FILE
+
+1.  Open DeepSeek Harness.
+2.  Open this parent folder: C:-IDS
+3.  Start a new session and select your intended coding model.
+4.  Copy and submit PHASE 1 only.
+5.  Review the output with your supervisor/ChatGPT.
+6.  Submit the next phase only after approving the previous phase.
+7.  Keep the original research repository unchanged.
+
+PROJECT PATHS
+
+Parent: C:-IDS
+
+Existing research repository: C:-IDS-fl-ids-sdn
+
+New application: C:-IDS-web
+
+EXISTING RESEARCH FILES
+
+-   InSDN_4.py
+-   InSDN_8.py
+-   InSDN_12.py
+-   CICDDoS17_4.py
+-   CICDDoS17_12.py
+-   CICDDoS19_4.py
+-   CICDDoS19_8.py
+-   CICDDoS19_12.py
+-   Figure Generation.py
+-   shapupdates.py
+
+CORE PROJECT GOAL
+
+Develop a genuine AI-powered Federated Intrusion Detection System
+(F-IDS) for Software-Defined Networking (SDN).
+
+Multiple clients must train local GRU models using their own
+network-traffic datasets. They collaboratively create a global model
+through federated learning without sharing raw training datasets.
+
+Use CKKS homomorphic encryption for model updates only if the
+implementation can be restored, integrated, and verified. Do not claim
+encryption is working when it is unavailable or merely simulated.
+
+After the IDS is implemented and validated, extend it into an SDN-based
+Intrusion Prevention System (IPS). The IPS extension may send mitigation
+requests to an SDN controller and apply OpenFlow rules in an isolated
+test network.
+
+IMPORTANT DISTINCTION
+
+IDS detects malicious traffic and generates alerts. IPS detects
+malicious traffic and takes prevention actions.
+
+The research priority is the Federated IDS. IPS is a later extension.
+
+GLOBAL RULES FOR EVERY PHASE
+
+-   Work directly in the local project using available Harness tools.
+-   Never delete the original repository.
+-   Never overwrite original research scripts without explicit approval.
+-   Do not infer implementation from imports or filenames; inspect
+    actual code.
+-   Do not fabricate metrics, predictions, encryption, training rounds,
+    or prevention actions.
+-   Clearly label simulated clients and demonstration data.
+-   Use a Python virtual environment; never install packages globally.
+-   Do not download unknown compiled binaries.
+-   Do not disable Windows security protections.
+-   Do not expose API keys, passwords, or secrets.
+-   Validate uploaded files and restrict file access to the project
+    directory.
+-   Do not expose arbitrary command execution through the API.
+-   Keep the application local by default.
+-   Before installing dependencies, explain what will be installed, why,
+    and which versions are proposed.
+-   Before destructive changes, explain the impact and obtain approval.
+-   After each phase, run relevant tests and report passed/failed
+    results.
+-   Do not continue to the next phase until the user approves it.
+-   If a dependency or feature is unavailable, document it and continue
+    only with independent work that does not misrepresent that feature.
+
+============================================================ PHASE 1 —
+REPOSITORY INSPECTION AND RESEARCH ANALYSIS
+============================================================
+
+PROMPT TO SUBMIT:
+
+You are beginning Phase 1 of SecureFed-IDS.
+
+Your ONLY task is to inspect the existing research repository and
+produce accurate analysis documents. Do not build the frontend or
+backend. Do not install dependencies. Do not execute unknown research
+scripts. Do not modify the original repository.
+
+Inspect: C:-IDS-fl-ids-sdn
+
+Read every Python source file, including: - InSDN_4.py - InSDN_8.py -
+InSDN_12.py - CICDDoS17_4.py - CICDDoS17_12.py - CICDDoS19_4.py -
+CICDDoS19_8.py - CICDDoS19_12.py - Figure Generation.py - shapupdates.py
+
+Inspect any README, configuration, requirements, data samples, and other
+project files that are present. Do not assume files exist if they are
+absent.
+
+Investigate these topics from actual source code: 1. GRU architecture,
+layers, units, input shape, and output shape. 2. Dataset loading,
+expected columns, labels, preprocessing, scaling, and train/test
+splitting. 3. Local model training and saved model artifacts. 4. Client
+construction and whether clients are simulated or independent. 5. Local
+update generation and model-weight handling. 6. Federated aggregation
+algorithm and aggregation weighting. 7. Global model creation and
+distribution. 8. CKKS encryption/decryption calls and required native
+dependencies. 9. The missing true_threshold_ckks dependency and its
+platform/Python compatibility constraints. 10. SHA-256 usage and what
+data it protects. 11. Authentication, replay protection, and Byzantine
+validation, if present. 12. SHAP/explainability implementation. 13.
+Evaluation metrics, experiment outputs, and reproducibility controls.
+14. Hardcoded paths, assumptions, and execution entry points. 15. All
+imported external packages and likely version constraints.
+
+Do not mark a feature as implemented merely because it is imported,
+named, or mentioned in a comment. Identify the relevant functions and
+code evidence. Distinguish: - Implemented in source but not executed. -
+Executed and verified. - Partially implemented. - Not implemented. -
+Blocked by a missing dependency.
+
+Create these documents inside the NEW application directory only,
+creating that directory if necessary: - PROJECT_ANALYSIS.md -
+FEATURE_MATRIX.md - INTEGRATION_PLAN.md - DEPENDENCY_REPORT.md
+
+The feature matrix must include: Feature | Source file/function |
+Evidence | Status | Verification | Remaining work
+
+Also provide: - A concise architecture diagram (Mermaid is
+acceptable). - The exact research workflow currently implemented. - The
+difference between the existing repository and the intended platform. -
+Risks and unresolved questions. - A proposed integration plan that
+preserves the original experiment behavior.
+
+Do not change any original research file.
+
+At the end, summarize findings and list the files created. STOP and wait
+for approval before Phase 2.
+
+============================================================ PHASE 2 —
+DEPENDENCY AUDIT AND SAFE REPRODUCIBILITY CHECK
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 1:
+
+Perform Phase 2 only: investigate dependencies and determine how safely
+the existing research implementation can be reproduced on this Windows
+machine.
+
+First read the Phase 1 documents: - PROJECT_ANALYSIS.md -
+FEATURE_MATRIX.md - INTEGRATION_PLAN.md - DEPENDENCY_REPORT.md
+
+Do not assume the Phase 1 conclusions are correct; verify important
+details against the source.
+
+Tasks: 1. Produce a proposed dependency list with package versions and
+Python compatibility notes. 2. Investigate TensorFlow/Keras, NumPy,
+Pandas, Scikit-learn, SHAP, and all other imports actually used. 3.
+Investigate true_threshold_ckks separately. Identify whether its source
+code exists, whether it is a compiled extension, its original platform,
+Python ABI, architecture, and build requirements. 4. Do not download or
+execute an unknown .so, .dll, .pyd, wheel, or executable. 5. Investigate
+safe, documented CKKS alternatives only if needed. Explain whether a
+replacement would change the research method or results. 6. Identify
+required datasets, their expected locations, sizes if known, and
+required columns. Do not download large datasets without approval. 7.
+Create a project-local Python virtual environment only after presenting
+the proposed installation list and receiving approval. 8. Do not install
+anything globally. 9. Do not run full experiments or long training jobs
+without approval. 10. If a minimal import or syntax check is safe,
+explain it and request approval before executing it.
+
+Update DEPENDENCY_REPORT.md with: - Confirmed dependencies. - Missing
+dependencies. - Proposed versions. - Python and OS compatibility. - CKKS
+status and possible paths forward. - Dataset requirements. -
+Installation commands. - Risks and unresolved issues.
+
+At the end, report what was checked, what was installed (if approved),
+and what remains blocked. STOP and wait for approval before Phase 3.
+
+============================================================ PHASE 3 —
+BACKEND FOUNDATION AND RESEARCH ADAPTER DESIGN
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 2:
+
+Perform Phase 3 only: create the FastAPI backend foundation and a safe
+integration layer for the existing research code.
+
+Read all project analysis and dependency documents first.
+
+Create the backend inside: C:-IDS-web
+
+Use: - Python - FastAPI - Pydantic - SQLAlchemy - SQLite initially
+
+Design modular components for: - API routes - Configuration - Database
+models and migrations/schema initialization - Dataset metadata and
+validation - Experiment records - Background job orchestration -
+Research adapters - Federated learning service - ML model service -
+Security service - Encryption service - SDN service (interface/stub only
+until its phase) - Logging and error handling
+
+Requirements: 1. Create health and version endpoints. 2. Create dataset
+metadata and upload-validation endpoints. 3. Create experiment
+create/list/detail/status endpoints. 4. Create client configuration and
+status endpoints. 5. Create prediction endpoints only if a real trained
+model and matching preprocessing pipeline are available. Otherwise
+return a clear “model unavailable” response. 6. Use background jobs for
+long-running tasks. Do not train inside a normal HTTP request. 7.
+Prevent duplicate jobs and support safe cancellation where feasible. 8.
+Persist job state and experiment metadata. 9. Restrict file operations
+to approved project directories. 10. Validate file extensions, size,
+content, and CSV parsing. Do not trust filenames or user-supplied paths.
+11. Do not provide arbitrary shell/command execution endpoints. 12. Do
+not expose secrets in logs or API responses. 13. Do not create fake
+encryption, fake predictions, or fake metrics. 14. Add unit tests for
+the backend foundation. 15. Document local startup commands.
+
+Research integration: - Do not rewrite the original research
+algorithms. - Build adapters around verified functions where possible. -
+If original scripts execute training at import time, do not import them
+directly into the API process. Propose a safe subprocess/worker adapter
+with fixed script allowlists and validated arguments. - Never accept
+arbitrary script paths or command strings from API users. - Keep the
+original repository read-only.
+
+Create or update: - backend structure - backend README or setup
+documentation - API documentation - tests - INTEGRATION_PLAN.md
+
+Do not build the React frontend in this phase. Run tests and report
+results. STOP and wait for approval before Phase 4.
+
+============================================================ PHASE 4 —
+REACT FRONTEND AND DASHBOARD SHELL
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 3:
+
+Perform Phase 4 only: build the React frontend for SecureFed-IDS.
+
+Create it inside: C:-IDS-web
+
+Use: - React - TypeScript - Vite - Tailwind CSS - Recharts - Lucide
+icons
+
+Design direction: - Professional cybersecurity research dashboard. -
+Dark navy background. - Subtle blue/cyan highlights. - Readable
+typography. - Responsive sidebar. - Clear tables and forms. - Consistent
+spacing. - Minimal animation. - Accessible contrast and keyboard
+navigation.
+
+Sidebar pages: 1. Overview 2. Datasets 3. Federated Clients 4. Federated
+Training 5. Homomorphic Encryption 6. Security Monitoring 7. Intrusion
+Detection 8. SDN Network 9. IPS / Prevention 10. Performance Evaluation
+11. Experiment History 12. Settings
+
+Build: - Shared application layout and navigation. - Reusable cards,
+tables, status indicators, forms, and chart components. - Loading,
+empty, error, and unavailable states. - API client with configurable
+local backend base URL. - Typed request/response models. - Proper form
+validation. - Responsive behavior.
+
+IMPORTANT: - Do not populate the dashboard with invented research
+results. - If backend endpoints are not ready, show an honest
+empty/unavailable state. - Any sample data used for layout must be
+clearly marked DEMO and kept separate from real experiment records. - Do
+not create buttons that appear functional but do nothing. If an
+operation is not integrated yet, disable it and explain why.
+
+Connect to the real backend endpoints created in Phase 3 where
+available. Add frontend tests or build checks.
+
+Do not implement ML algorithms in the frontend. Do not implement SDN or
+IPS behavior in this phase.
+
+Run the frontend build and tests. Report results and STOP for approval
+before Phase 5.
+
+============================================================ PHASE 5 —
+DATASET PIPELINE, GRU MODEL AND FEDERATED LEARNING
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 4:
+
+Perform Phase 5 only: integrate the verified research dataset pipeline,
+GRU model, local training, and federated learning workflow.
+
+Read the original research source and Phase 1-4 documents before coding.
+
+Priorities: 1. Preserve the original GRU architecture and experimental
+behavior. 2. Preserve dataset-specific preprocessing and label handling.
+3. Avoid data leakage between training and evaluation. 4. Ensure every
+client has a defined local data partition. 5. Make client count
+configurable only within supported configurations. 6. Implement genuine
+local client training. 7. Generate local model updates using the
+original model representation. 8. Implement the aggregation algorithm
+verified in the source. 9. Distribute the global model back to clients.
+10. Save model weights, preprocessing configuration, random seeds, round
+history, and evaluation results.
+
+Federated learning correctness: - Do not send raw local training
+datasets to the aggregation server. - Do not call centralized training
+federated learning. - Clearly label simulated clients. - Record which
+clients participated in each round. - Validate model weight shapes and
+update compatibility. - Handle failed or unavailable clients. - Record
+local and global metrics separately. - Do not silently change optimizer,
+loss, model layers, aggregation method, or hyperparameters from the
+research implementation.
+
+Dataset handling: - Support InSDN, CICDDoS2017, and CICDDoS2019 only
+according to verified schemas and preprocessing. - Validate columns and
+labels. - Record preprocessing parameters. - Avoid loading untrusted
+serialized objects. - Provide clear errors for missing datasets.
+
+Integrate training through the backend background-job system. Provide
+progress and cancellation only where safely supported.
+
+Add tests using small synthetic fixtures for pipeline mechanics. Clearly
+mark synthetic fixtures as tests, never research results.
+
+Do not claim paper-level performance unless independently reproduced
+with the correct dataset, configuration, and evaluation protocol.
+
+Run a small approved test first. Ask before large training runs. Report
+metrics only when actually produced. STOP for approval before Phase 6.
+
+============================================================ PHASE 6 —
+CKKS ENCRYPTION AND SECURITY MECHANISMS
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 5:
+
+Perform Phase 6 only: investigate, integrate, and test privacy and
+security mechanisms.
+
+Read the original source and dependency report first.
+
+A. CKKS: 1. Determine whether the original true_threshold_ckks
+implementation can be built or restored from legitimate source. 2. Do
+not use an unknown precompiled binary. 3. If it cannot be restored,
+evaluate a documented CKKS library compatible with the environment. 4.
+Explain differences from the original method before replacing anything.
+5. Define supported parameter configuration and key management. 6.
+Encrypt model updates only if the implementation is real and tested. 7.
+Verify decryption/aggregation correctness using controlled test vectors.
+8. Record encryption, decryption, aggregation time, and ciphertext size.
+9. Never log secret keys or private key material. 10. If unavailable,
+mark CKKS as BLOCKED/UNAVAILABLE rather than simulating it.
+
+B. Security: Inspect and implement only the mechanisms supported by the
+research design: - Authentication of clients. - SHA-256 integrity
+checks. - Replay protection using suitable unique round/message
+identifiers and freshness checks. - Byzantine update validation only
+with a defined and tested validation algorithm.
+
+Do not claim that SHA-256 alone prevents Byzantine attacks. Do not claim
+that authentication alone makes aggregation Byzantine-resilient.
+Document threat model, assumptions, limitations, and tests.
+
+Add unit and integration tests for every implemented security mechanism.
+Update FEATURE_MATRIX.md and DEPENDENCY_REPORT.md with evidence and
+status.
+
+Do not proceed to SDN integration. Report what is genuinely implemented
+and verified. STOP for approval before Phase 7.
+
+============================================================ PHASE 7 —
+END-TO-END IDS VALIDATION AND EXPERIMENT REPORTING
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 6:
+
+Perform Phase 7 only: validate the complete Federated IDS workflow.
+
+Test the pipeline from dataset loading through local training,
+aggregation, global model distribution, and intrusion prediction.
+
+Validation checklist: 1. Dataset schema and preprocessing correctness.
+2. Label mapping and class distribution. 3. Train/test separation and
+leakage checks. 4. Local client training. 5. Federated round execution.
+6. Aggregation correctness. 7. Global model distribution. 8. Prediction
+using the actual global model. 9. Confusion matrix and classification
+report. 10. Accuracy, precision, recall, and F1-score. 11.
+Reproducibility from saved configuration. 12. Correct behavior when a
+client or dependency fails. 13. CKKS correctness only if CKKS was
+verified in Phase 6. 14. Security checks only for implemented
+mechanisms.
+
+Compare results across datasets and client counts only when experiments
+have actually been run under comparable conditions.
+
+Create: - IDS_VALIDATION_REPORT.md - EXPERIMENT_PROTOCOL.md -
+EXPERIMENT_RESULTS.md
+
+Every result must include dataset, preprocessing, model configuration,
+client count, rounds, random seed, and evaluation split where available.
+
+Do not invent results or copy paper-reported numbers into actual
+experiment results.
+
+Ask before large or time-consuming experiments. Run small validation
+tests first. Fix defects and rerun tests. STOP for approval before Phase
+8.
+
+============================================================ PHASE 8 —
+SDN NETWORK EMULATION AND CONTROLLER INTEGRATION
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 7:
+
+Perform Phase 8 only: integrate SecureFed-IDS with an isolated SDN test
+environment.
+
+Target technologies: - Mininet - Open vSwitch - Ryu SDN controller -
+OpenFlow
+
+First inspect the Windows environment. Mininet and some SDN components
+may require Linux or a supported VM/WSL setup. Do not assume native
+Windows support.
+
+Before installing or changing networking components: - Explain OS
+requirements. - Propose the safest isolated environment. - Explain
+network and security risks. - Obtain approval.
+
+Build a modular SDN adapter that can: 1. Connect to the configured
+controller. 2. Read switch and flow information where supported. 3.
+Receive flow statistics. 4. Map observed flows to the feature extraction
+pipeline. 5. Pass correctly prepared features to the validated IDS
+model. 6. Receive the model prediction. 7. Produce an alert with flow
+identifiers and timestamp. 8. Record the detection result.
+
+Important: - Do not assume packet/flow statistics automatically match
+the research dataset features. - Document and test the feature
+mapping. - Do not claim live detection if only offline CSV data is
+used. - Keep all testing inside an isolated lab network. - Do not alter
+the user’s real network configuration.
+
+Provide setup instructions, topology documentation, and integration
+tests. Do not implement automatic blocking in this phase. STOP for
+approval before Phase 9.
+
+============================================================ PHASE 9 —
+IPS PREVENTION EXTENSION
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 8:
+
+Perform Phase 9 only: extend the validated IDS into an SDN-based IPS in
+the isolated test environment.
+
+Prevention workflow: 1. Receive an IDS malicious-traffic prediction. 2.
+Identify the corresponding switch and flow. 3. Apply configured
+confidence/decision policy where supported. 4. Generate a mitigation
+request. 5. Require manual approval by default. 6. Send an allowlisted
+mitigation command to the SDN controller. 7. Apply a narrowly scoped
+OpenFlow rule. 8. Record rule identifier, switch, flow, timestamp,
+reason, and result. 9. Verify the flow behavior after applying the rule.
+10. Support rule expiry/removal and safe rollback.
+
+Provide three modes: - Detection only (default). - Manual approval
+before blocking. - Automatic blocking (disabled by default and
+restricted to isolated lab).
+
+Safety: - Never block traffic on the user’s real network. - Do not
+expose arbitrary controller commands through the web API. - Validate
+switch and flow identifiers. - Use least-privilege controller access. -
+Provide a clear emergency stop and rollback procedure. - Log every
+mitigation attempt and result. - Distinguish requested, applied, failed,
+and verified actions.
+
+Test normal traffic, malicious test traffic, false positives, controller
+failure, and rollback. Do not claim prevention success unless the flow
+behavior is verified.
+
+Create IPS_TEST_REPORT.md and update system documentation. STOP for
+approval before Phase 10.
+
+============================================================ PHASE 10 —
+FINAL INTEGRATION, TESTING AND DOCUMENTATION
+============================================================
+
+PROMPT TO SUBMIT AFTER APPROVING PHASE 9:
+
+Perform Phase 10 only: final integration, quality assurance, and
+documentation.
+
+Test: - Frontend build and navigation. - Backend startup and API
+health. - Database initialization. - Dataset upload and validation. -
+Experiment creation and background execution. - Local training. -
+Federated aggregation. - Global model prediction. - CKKS only if
+verified. - Authentication and integrity mechanisms that were
+implemented. - SDN detection integration. - IPS mitigation only in
+isolated lab. - Experiment history and report export. - Error handling
+and recovery. - Local security configuration.
+
+Fix integration defects and rerun affected tests.
+
+Create or finalize: - README.md - INSTALLATION_WINDOWS.md -
+USER_GUIDE.md - ARCHITECTURE.md - API_DOCUMENTATION.md -
+RESEARCH_REPRODUCIBILITY.md - SECURITY_AND_LIMITATIONS.md -
+FINAL_TEST_REPORT.md
+
+README must explain: - What the system does. - What is genuinely
+implemented. - What is simulated. - What remains unavailable. - How to
+install. - How to start frontend and backend. - How to configure
+datasets. - How to run a federated experiment. - How to test intrusion
+detection. - How to start the isolated SDN lab. - How to use IPS safely.
+
+Provide exact Windows commands. Do not claim all tests pass unless they
+do.
+
+At the end, provide: 1. Final project tree. 2. Startup commands. 3. Test
+summary. 4. Implemented feature matrix. 5. Known limitations. 6.
+Reproducibility instructions. 7. Suggested future research work.
+
+Do not delete temporary or source files without approval.
+
+============================================================ FINAL
+PROJECT ACCEPTANCE CRITERIA
+============================================================
+
+The project is not complete merely because the dashboard renders.
+
+A feature is complete only when its backend behavior is implemented and
+tested.
+
+Minimum IDS acceptance: - Correct dataset validation and
+preprocessing. - Actual GRU model integration. - Independent local
+client training. - Actual federated aggregation. - Global model
+distribution. - Predictions from the trained global model. -
+Reproducible experiment records. - Honest evaluation metrics.
+
+Privacy/security acceptance: - CKKS is real and verified, or clearly
+reported unavailable. - Security mechanisms are individually tested. -
+Limitations and threat assumptions are documented.
+
+SDN/IPS acceptance: - Isolated SDN topology works. - Traffic-to-feature
+mapping is tested. - IDS alerts identify the relevant flow. - IPS rules
+are applied and verified in the lab. - Rollback works.
+
+The project must always distinguish implemented, tested, simulated,
+blocked, and not implemented functionality.
+
+END OF PHASE-BY-PHASE PROMPTS
