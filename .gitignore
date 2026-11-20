@@ -1,0 +1,28 @@
+# Ignore CICIDS2017 CSV datasets
+web/backend/cicids2017_48_binary.csv
+web/backend/cicids2017_binary.csv
+web/backend/cicids2017_cleaned.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.venv/
+.venv-*/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
