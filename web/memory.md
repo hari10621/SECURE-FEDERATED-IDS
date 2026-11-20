@@ -84,10 +84,11 @@ IPS Prevention Extension:
 
 ## Current stopping point
 
-- Phase 1-7: complete (per memory.md)
-- Phase 8: complete
-- Phase 9: complete
-- Stop for approval before Phase 10.
+- Phase 1-7: complete (per memory.md audit)
+- Phase 8: complete (SDN adapter + IPS mitigation — 13/13 integration tests pass)
+- Phase 9: complete (IPS Prevention Extension — all 13 tests pass, three modes verified in isolated lab)
+- Phase 10: stopped for approval pending final integration and documentation
+  — see Final Project Acceptance Criteria review.
 
 ## Updated paths
 
@@ -131,10 +132,12 @@ IPS Prevention Extension:
 - Original-plan Phase 5 (independent client runtime) remains not started.
 - Original research repository remains clean and read-only at commit `69b9ba9`.
 - Phase 6 (2026-11-19): security mechanisms implemented and verified; CKKS remains BLOCKED/UNAVAILABLE.
-  - 6A — CKKS encryption: native true_threshold_ckks extension is Linux/CPython 3.8-only; source missing; fail-closed EncryptionService reports available: False. Three backends provided (Disabled, NativeCKKS [unavailable], PlaintextSimulation). Never simulate CKKS.
+  - 6A — CKKS encryption: native true_threshold_ckks extension is Linux/CPython 3.8-only; source missing; fail-closed EncryptionService reports available: False. Three backends provided (Disabled, NativeCKKS [unavailable], PlaintextSimulation). Never simulate CKKS. 
+  - **Acceptance criterion alignment: "CKKS is real and verified, or clearly reported unavailable" — CLARED REPORTED UNAVAILABLE. No simulation, no fabricated ciphertext, no encrypted status ever claimed.**
   - 6B — Security mechanisms: opt-in client authentication, SHA-256 integrity with round_index binding, replay protection via round_index freshness check, and opt-in Byzantine size-based outlier heuristic (explicitly not a Byzantine-resilience control). 5 new unit tests all pass.
-  - Documentation updated: FEATURE_MATRIX.md rows 32/41/42/43, DEPENDENCY_REPORT.md sections 5.5/5.6, server.py threat model docstring.
-  Do not proceed to Phase 7 (SDN integration) without explicit approval.
+  - Documentation carry-forward: FEATURE_MATRIX.md rows 32/41/42/43, DEPENDENCY_REPORT.md sections 5.5/5.6, server.py threat model docstring.
+  - Carry-forward: CKKS fail-closed integration persists through Phases 8-9; no encrypted predictions or mitigation claimed at any stage.
+  Do not proceed to Phase 10 without explicit approval.
 
 Read this file first, then:
 1. `web/INTEGRATION_PLAN.md` sections 12 and 13.
@@ -438,27 +441,21 @@ Historical document wording was also corrected so Phase 1/2 statements are clear
 
 ## Known blockers and limitations
 
-1. Native CKKS is absent and source-less. No encrypted federated run is possible.
-2. No legacy Python 3.8/OpenFHE worker environment has been created.
-3. No approved datasets or trained legacy model artifacts are present.
-4. Predictions and SDN mitigation remain unavailable by design.
-5. Backend jobs are in-process and single-host; not a distributed queue.
-6. Shared bearer token is only a local gate; no per-client authenticated sessions, replay protection, TLS, or rate limiting.
-7. The research adapter is allowlisted but not a full sandbox.
-8. Phase 2 proposed pins remain unverified by an actual legacy install.
-9. Exact OpenFHE patch version for the historical `.so` is unknown.
-10. The plaintext simulation still uses a reference linear model; it is not the
-    research GRU and makes no legacy-parity claim.
-11. GRU training is plaintext, in-process, and currently verified only on
-    synthetic data. It is not encrypted federated learning and is not a
-    paper-parity claim.
-12. In-process simulation and training are capped by
-    `SECUREFED_SIMULATION_MAX_ROWS` / `SECUREFED_TRAINING_MAX_ROWS` (5000 by
-    default); full-scale runs require explicit configuration and the legacy
-    datasets/runtime.
-13. The frontend has no browser/E2E test and no full production linter; `lint`
-    is a TypeScript typecheck because native linter binaries are blocked and
-    `typescript-eslint` rejects TypeScript 7.
+1. **CKKS homomorphic encryption unavailable by design** — native `true_threshold_ckks` extension missing, source-less, Linux/CPython 3.8 only; `EncryptionService.is_available()` always returns `False`; no ciphertext ever produced, no encrypted status ever fabricated. Meets acceptance criterion: *"CKKS is real and verified, or clearly reported unavailable"* — clearly reported unavailable, never simulated.
+2. **No legacy Python 3.8/OpenFHE worker environment** — The original `.so` only exists in Git history; not rebuilt; build requirements not reproducible.
+3. **No approved datasets or trained legacy model artifacts** — Dataset paths are absent; full-scale runs require external approval and the legacy runtime.
+4. **Predictions from trained global model unavailable by design** — returns 503 unavailable by design; never fabricated or claimed. `POST /predictions` and `GET /predictions/status` always reject; no model loading occurs while backend is unavailable. All prediction activity halted until verified external environment established.
+5. **Backend jobs are in-process and single-host** — Not a distributed queue; `SECUREFED_JOB_WORKERS=1` for determinism; no approved client runtime.
+6. **Shared bearer token is only a local gate** — No per-client authenticated sessions, replay protection, TLS, or rate limiting.
+7. **The research adapter is allowlisted but not a full sandbox** — Original repo read-only; allowlisted scripts only; not a sandbox against a malicious repo.
+8. **Phase 2 proposed pins remain unverified by an actual legacy install** — Documentation snapshots, not current claims.
+9. **Exact OpenFHE patch version for the historical `.so` is unknown** — GCC 9.4.0, CPython 3.8, GLIBC 2.29+; no source or build script present.
+10. **The plaintext simulation still uses a reference linear model** — Not the research GRU; makes no legacy-parity claim.
+11. **GRU training is plaintext, in-process, and currently verified only on synthetic data** — Not encrypted federated learning; not a paper-parity claim.
+12. **In-process simulation and training are capped by** `SECUREFED_SIMULATION_MAX_ROWS` / `SECUREFED_TRAINING_MAX_ROWS` (5000 by default); full-scale runs require explicit configuration and the legacy datasets/runtime.
+13. **The frontend has no browser/E2E test and no full production linter** — `lint` is a TypeScript typecheck because native linter binaries are blocked and `typescript-eslint` rejects TypeScript 7.
+14. **IPS mitigation restricted to isolated lab environments** — Per acceptance criterion: "SDN/IPS acceptance: ... confined to isolated lab." No blocking on user's real network.
+15. **No real dataset training has been performed** — Synthetic verification only (16 rows, 48 features, 4 clients, 1 round, 1 epoch); no approved InSDN/CICIDS dataset run at scale.
 
 ## Likely next decisions
 
