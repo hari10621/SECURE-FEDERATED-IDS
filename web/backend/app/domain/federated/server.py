@@ -93,7 +93,7 @@ class FLServer:
         self.max_clock_drift_seconds = max_clock_drift_seconds
         self._clients: dict[str, RegisteredClient] = {}
         self._sessions: dict[str, str] = {}  # client_id -> session_token
-        self._round_nonces: dict[int, float] = {}  # round_index -> timestamp
+        self._round_nonces: dict[tuple[str, int], float] = {}  # (client_id, round_index) -> timestamp
 
     @property
     def registered_clients(self) -> tuple[RegisteredClient, ...]:
@@ -133,19 +133,20 @@ class FLServer:
             raise InputValidationError(f"update from {update.client_id} has no samples")
         if any(not math.isfinite(value) for value in update.weights):
             raise InputValidationError(f"update from {update.client_id} contains non-finite values")
-        # Replay protection: check round_index freshness
-        if update.round_index in self._round_nonces:
-            last_seen = self._round_nonces[update.round_index]
+        # Replay protection: check client-round freshness
+        nonce_key = (update.client_id, update.round_index)
+        if nonce_key in self._round_nonces:
+            last_seen = self._round_nonces[nonce_key]
             if time.time() - last_seen > self.max_clock_drift_seconds:
                 # Stale round from a previous execution window; allow re-use
-                self._round_nonces[update.round_index] = time.time()
+                self._round_nonces[nonce_key] = time.time()
             else:
                 # Same round seen within the window — potential replay
                 raise InputValidationError(
-                    f"replay detected: update round_index={update.round_index} already processed"
+                    f"replay detected: update round_index={update.round_index} for client {update.client_id} already processed"
                 )
         else:
-            self._round_nonces[update.round_index] = time.time()
+            self._round_nonces[nonce_key] = time.time()
 
     def _scaling_factors(self, updates: Sequence[ClientUpdate]) -> list[float]:
         counts = [update.sample_count for update in updates]

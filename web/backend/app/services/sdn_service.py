@@ -46,6 +46,7 @@ def status() -> dict[str, Any]:
     base = adapter.status()
     # Enrich with legacy‑service shape
     base["available"] = base.get("connected", False)
+    base["reason"] = base.get("reason", "" if base.get("available") else "SDN controller is not connected")
     if base.get("connected") and adapter._switch_info is not None:
         base["switch"] = adapter._switch_info.to_dict()
     else:
@@ -82,25 +83,22 @@ def apply_mitigation(*_args: Any, **_kwargs: Any) -> None:
 
 
 # ------------------------------------------------------------------
-# Backward‑compatibility shim: keep the old ``SDNService`` class
-# importable for any code that still references it directly.
+# Service class: provides object interface for dependency injection
+# (used by app.main, deps.py, and legacy code).
 # ------------------------------------------------------------------
 
-class _LegacySDNService:
-    """Legacy Phase 3 service – kept for backward compatibility.
+class SDNService:
+    """SDN service wrapper exposing status and mitigation actions from the configured SDNAdapter."""
 
-    New code should import :func:`status` and :func:`apply_mitigation`
-    from this module instead.
-    """
+    def __init__(self, adapter: Any = None) -> None:
+        self._adapter = adapter or _get_adapter()
 
     def status(self) -> dict[str, Any]:
-        return {
-            "available": False,
-            "reason": "SDN/IPS integration is not implemented in Phase 3.",
-        }
+        return status()
 
-    def apply_mitigation(self, *_args: Any, **_kwargs: Any) -> None:
-        raise UnavailableError("SDN mitigation is unavailable in Phase 3")
+    def apply_mitigation(self, *args: Any, **kwargs: Any) -> None:
+        return apply_mitigation(*args, **kwargs)
 
 
-legacy = _LegacySDNService()  # backwards-compatible instance
+_LegacySDNService = SDNService
+legacy = SDNService()  # backwards-compatible instance

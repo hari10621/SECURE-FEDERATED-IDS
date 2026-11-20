@@ -247,4 +247,6 @@ class EncryptionStatusResponse(BaseModel):
 
 class SDNStatusResponse(BaseModel):
     available: bool
-    reason: str
+    reason: str = ""
+    mode: str | None = None
+    switch: dict[str, Any] | None = None

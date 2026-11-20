@@ -1,9 +1,51 @@
 # SecureFed-IDS Session Memory
 
-Last updated: 2026-11-19
+Last updated: 2026-11-20
 Purpose: resume the SecureFed-IDS integration work in a new session without repeating the audit.
 
 ## Current stopping point
+
+- Phase 1-7: complete (per historical memory).
+- Phase 8: complete (SDN network emulation and adapter).
+- Phase 9: complete (IPS prevention extension and report).
+- Phase 10: complete (final integration, defect fixes, quality assurance, and complete documentation suite).
+- Phase 11: complete (three-way technical comparison generated in comparison.txt).
+- All 105 lightweight backend tests, 104 TensorFlow backend tests, and 17 frontend tests pass cleanly with zero failures.
+
+## Phase 10 status (complete on 2026-11-20)
+
+Final Integration, Quality Assurance, and Documentation:
+
+- Resolved 7 integration defects identified during cross-subsystem audit:
+  1. Fixed `ModuleNotFoundError: No module named 'web'` in `sdn_adapter.py` and `tests/test_sdn_adapter.py`.
+  2. Fixed multi-client replay protection collision in `server.py` by scoping nonces to `(client_id, round_index)`.
+  3. Removed duplicate `server.validate_update()` call from `round.py` before `server.aggregate()`.
+  4. Corrected input tensor dimensionality in `sdn_adapter.predict()` to `(1, 1, 48)` for GRU compatibility.
+  5. Added missing `reason` field to `SDNStatusResponse` schema and `sdn_service.status()`.
+  6. Added `record_result()` method and fixed `MitigationResult` attribute indexing in `sdn_adapter.py`.
+  7. Configured FastAPI `CORSMiddleware` and Vite reverse proxy `/api` to connect frontend to backend.
+- Verified test suites:
+  - Backend (.venv Python 3.12): 105 passed, 1 skipped.
+  - Backend (.venv-tf Python 3.11 + TF 2.13.1): 104 passed, 2 skipped.
+  - Frontend (React 19 + TypeScript): lint passed, 17 vitest passed, production build passed.
+- Authored and verified complete project documentation:
+  - `README.md`
+  - `INSTALLATION_WINDOWS.md`
+  - `USER_GUIDE.md`
+  - `ARCHITECTURE.md`
+  - `API_DOCUMENTATION.md`
+  - `RESEARCH_REPRODUCIBILITY.md`
+  - `SECURITY_AND_LIMITATIONS.md`
+  - `FINAL_TEST_REPORT.md`
+
+## Phase 11 status (complete on 2026-11-20)
+
+Three-Way Comparison Report & Synthesis:
+
+- Created `comparison.txt` providing exhaustive, side-by-side analysis between:
+  1. Reference Paper (Shamim et al., IEEE Access 2026): Centralized TA key generation, TenSEAL CKKS, 48 features, stacked GRU (256/128/64), 99.94% InSDN accuracy.
+  2. Research Codebase (`threshold-fl-ids-sdn/`): C++/OpenFHE DKG Shamir threshold CKKS, missing `.so`, unseeded splits, pre-split scaler data leakage.
+  3. Web Platform (`web/`): Full-stack FastAPI + React platform, fail-closed CKKS boundary, clean/legacy scaler modes, modular SDN adapter, and 3 IPS mitigation modes.
 
 ## Phase 8 status (complete on 2026-11-19)
 

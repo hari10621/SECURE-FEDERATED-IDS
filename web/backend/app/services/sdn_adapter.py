@@ -62,7 +62,7 @@ from ..domain.model import (
 
 DEFAULT_SWITCH_ID = "00:00:00:00:00:00:00:01"
 FEATURE_NAME_COUNT = 48
-MODEL_INPUT_SHAPE = (1, FEATURE_NAME_COUNT)
+MODEL_INPUT_SHAPE = (1, 1, FEATURE_NAME_COUNT)
 
 RYU_AVAILABLE: bool = False
 try:
@@ -383,8 +383,6 @@ class SDNAdapter:
         # Build a fresh model matching the research architecture,
         # but fail gracefully if TensorFlow/Keras is unavailable.
         if keras_available():
-            from web.backend.app.domain.model import build_gru_model
-
             self.model = build_gru_model(input_features=FEATURE_NAME_COUNT)
         # If model remains None, predict() will raise UnavailableError.
 
@@ -739,12 +737,14 @@ class SDNAdapter:
             raise UnavailableError("IDS model not initialized.")
 
         import numpy as np
-        X = np.array(features, dtype=np.float32).reshape(MODEL_INPUT_SHAPE)
 
         if self.scaler is not None:
             from ..domain.dataset import apply_scaler
-            X = apply_scaler([X], self.scaler)[0]
-            X = X.reshape(MODEL_INPUT_SHAPE)
+            features_scaled = apply_scaler([features], self.scaler)[0]
+        else:
+            features_scaled = features
+
+        X = np.array(features_scaled, dtype=np.float32).reshape(MODEL_INPUT_SHAPE)
 
         if not keras_available():
             raise UnavailableError("TensorFlow/Keras is not available for inference.")
@@ -809,6 +809,10 @@ class SDNAdapter:
 
         self._detection_history.append(result)
         return result
+
+    def record_result(self, result: DetectionResult) -> None:
+        """Record a detection result into history."""
+        self._detection_history.append(result)
 
     # -----------------------------------------------------------------
     # IPS Prevention (Phase 9)
@@ -895,7 +899,7 @@ class SDNAdapter:
                     "ipv4_src_addr": request.match.get("ipv4_src_addr") if hasattr(request, 'match') else None,
                     "ipv4_dst_addr": request.match.get("ipv4_dst_addr") if hasattr(request, 'match') else None,
                 },
-                "priority": min(request.priority, self.max_rule_priority),
+                "priority": min(getattr(request, "priority", 1), self.max_rule_priority),
                 "actions": ["output:normal"],
                 "installed_at": time.time(),
             }
@@ -1020,7 +1024,7 @@ class SDNAdapter:
             "by_status": {},
         }
         for result in self._mitigation_history:
-            status = result["status"]
+            status = result.status
             summary["by_status"][status] = summary["by_status"].get(status, 0) + 1
         return summary
 
