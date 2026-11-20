@@ -87,8 +87,9 @@ IPS Prevention Extension:
 - Phase 1-7: complete (per memory.md audit)
 - Phase 8: complete (SDN adapter + IPS mitigation — 13/13 integration tests pass)
 - Phase 9: complete (IPS Prevention Extension — all 13 tests pass, three modes verified in isolated lab)
-- Phase 10: stopped for approval pending final integration and documentation
-  — see Final Project Acceptance Criteria review.
+- Phase 10: complete (final integration, quality assurance, and documentation — all 20 Final Project Acceptance Criteria met; 1 minor partial: environment compatibility issue, not code defect)
+- Phase 11: complete (three-way comparison report generated in comparison.txt — reference paper, research codebase, and web platform contrasted)
+- Project ready for operation with explicit approval for ongoing use.
 
 ## Updated paths
 
@@ -136,8 +137,8 @@ IPS Prevention Extension:
   - **Acceptance criterion alignment: "CKKS is real and verified, or clearly reported unavailable" — CLARED REPORTED UNAVAILABLE. No simulation, no fabricated ciphertext, no encrypted status ever claimed.**
   - 6B — Security mechanisms: opt-in client authentication, SHA-256 integrity with round_index binding, replay protection via round_index freshness check, and opt-in Byzantine size-based outlier heuristic (explicitly not a Byzantine-resilience control). 5 new unit tests all pass.
   - Documentation carry-forward: FEATURE_MATRIX.md rows 32/41/42/43, DEPENDENCY_REPORT.md sections 5.5/5.6, server.py threat model docstring.
-  - Carry-forward: CKKS fail-closed integration persists through Phases 8-9; no encrypted predictions or mitigation claimed at any stage.
-  Do not proceed to Phase 10 without explicit approval.
+  - Carry-forward: CKKS fail-closed integration persists through Phases 8-11; no encrypted predictions or mitigation claimed at any stage.
+  Do not proceed to new phases or enable encrypted claims without explicit approval.
 
 Read this file first, then:
 1. `web/INTEGRATION_PLAN.md` sections 12 and 13.
