@@ -60,6 +60,9 @@ SDN Network Emulation and Controller Integration:
   compatibility, and history exports
 - PHASE_8_SDN_INTEGRATION.md documentation created
 - sdn_service.py updated to wrap the new adapter
+- **IPS API endpoints implemented:**
+  - `POST /api/v1/ips/detect` - GRU IDS model inference on 48-feature vectors
+  - `POST /api/v1/ips/mitigate` - Mitigation request generation by IPS mode
 - Three IPS mitigation modes implemented:
   - detection_only (default): no OpenFlow rules installed
   - manual_approval: requests require explicit operator approval
