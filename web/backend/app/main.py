@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api import clients, datasets, experiments, health, jobs, predictions
+from .api import clients, datasets, experiments, health, ips, jobs, predictions
 from .config import Settings
 from .db import Database
 from .errors import AppError
@@ -158,6 +158,7 @@ def create_app(
 
     app.router.lifespan_context = lifespan
     app.include_router(health.router, prefix=settings.api_prefix)
+    app.include_router(ips.router, prefix=settings.api_prefix)
     app.include_router(datasets.router, prefix=settings.api_prefix)
     app.include_router(experiments.router, prefix=settings.api_prefix)
     app.include_router(clients.router, prefix=settings.api_prefix)

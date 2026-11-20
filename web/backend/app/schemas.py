@@ -250,3 +250,37 @@ class SDNStatusResponse(BaseModel):
     reason: str = ""
     mode: str | None = None
     switch: dict[str, Any] | None = None
+
+
+class MitigationRequest(BaseModel):
+    """Request body for ``POST /api/v1/ips/mitigate``."""
+
+    flow_id: str = ""
+    switch_dp_id: str = ""
+    table_id: int = 0
+    prediction_probability: float = 0.0
+    confidence_threshold: float = 0.5
+    reason: str = "IDS prediction"
+
+
+class MitigationResponse(BaseModel):
+    """Response from ``POST /api/v1/ips/mitigate``."""
+
+    request_id: str
+    status: str
+    applied_rule_id: str | None = None
+    verification_result: dict[str, Any] | None = None
+    error: str | None = None
+    applied_at: float | None = None
+    completed_at: float | None = None
+    reason: str = ""
+
+
+class IPSDetectResponse(BaseModel):
+    """Response from ``POST /api/v1/ips/detect``."""
+
+    available: bool
+    reason: str = ""
+    prediction: float | None = None
+    label: int | None = None
+    alert: dict[str, Any] | None = None
