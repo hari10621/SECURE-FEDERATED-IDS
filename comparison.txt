@@ -1,0 +1,192 @@
+================================================================================
+SECUREFED-IDS: THREE-WAY COMPREHENSIVE TECHNICAL COMPARISON
+================================================================================
+Generated: 2026-11-20
+Project: Privacy-Preserving Federated Intrusion Detection System for SDN
+
+This document provides an exhaustive, side-by-side technical comparison between:
+  1. REFERENCE PAPER: Shamim et al., IEEE Access 2026 (10.1109/ACCESS.2026.3691160)
+  2. RESEARCH REPOSITORY: threshold-fl-ids-sdn/ (ictshamim09 research codebase)
+  3. WEB PLATFORM: web/ (Full-stack FastAPI + React platform developed in Phases 1-10)
+
+================================================================================
+SECTION 1: SYSTEM ARCHITECTURE & CRYPTOGRAPHIC DESIGN
+================================================================================
+
+1.1 Cryptographic Paradigm:
+  * Reference Paper:
+    - Centralized Offline Trusted Authority (TA) key generation at t = 0.
+    - Generates a single global CKKS keypair (pk, sk) and per-client tokens.
+    - Distributes (pk, ctx) to aggregation server and (pk, sk, auth_token_i) to clients.
+    - Server NEVER holds secret key sk; does not perform distributed key generation.
+  * Research Repository:
+    - Decentralized Multiparty DKG (Distributed Key Generation) with Shamir Secret Sharing.
+    - Uses custom C++ OpenFHE extension (true_threshold_ckks).
+    - Threshold decryption: each party produces a partial decryption share; server or
+      lead combines >= t shares to recover plaintext weights.
+  * Web Platform:
+    - Fail-closed cryptographic architecture (EncryptionService).
+    - Reports available: false until a verified native CKKS backend is linked.
+    - Zero fake ciphertext or simulated encryption.
+    - Designed with modular abstraction (TenSEALCKKSBackend / NativeCKKSBackend).
+
+1.2 CKKS Parameterization:
+  * Reference Paper:
+    - Security level: 128-bit security.
+    - Polynomial modulus degree: n = 8,192 (slot count = 4,096 complex slots).
+    - Modulus chain: Q = [60, 40, 40, 60] bits (multiplicative depth = 2).
+    - Scaling factor: Delta = 2^40.
+    - Model chunking: 422,337 GRU parameters split into 104 chunks of 4,096 slots.
+  * Research Repository:
+    - Same polynomial modulus n = 8,192 and slot count 4,096.
+    - true_threshold_ckks.so compiled for CPython 3.8 / Linux.
+    - Missing compiled binary at HEAD in Git history (last seen in commit 6824e5b).
+  * Web Platform:
+    - Exactly reproduces the 104 chunk division (chunk_count(48) == 104).
+    - Verified lossless flatten/unflatten codec in tests/test_domain_model.py.
+
+================================================================================
+SECTION 2: MACHINE LEARNING & DEEP NEURAL NETWORK ARCHITECTURE
+================================================================================
+
+2.1 Classifier Topology:
+  * All Three Environments:
+    - Input Vector: 48 features (shape: (batch_size, 1, 48)).
+    - Block 1: GRU(256, return_sequences=True) -> BatchNormalization -> Dropout(0.3)
+    - Block 2: GRU(128, return_sequences=True) -> BatchNormalization -> Dropout(0.3)
+    - Block 3: GRU(64, return_sequences=False) -> BatchNormalization -> Dropout(0.3)
+    - Output: Dense(1, activation='sigmoid') (Threshold = 0.5)
+    - Total Trainable Parameters: 422,337 floats.
+    - Loss Function: Binary Cross-Entropy.
+    - Optimizer: Adam (lr = 1e-4, beta_1 = 0.9, beta_2 = 0.999).
+
+2.2 Training Hyperparameters & Execution:
+  * Reference Paper:
+    - Communication Rounds: 15 rounds.
+    - Local Epochs: 5 epochs per round per client.
+    - Batch Size: 512 (InSDN), 32 in some sub-experiments.
+    - Partitioning: IID client shards with N in {4, 8, 12}.
+  * Research Repository:
+    - Unseeded global random.shuffle() for client creation.
+    - Remainder rows after integer division (len // N) dropped without tracking.
+    - Training executed sequentially in a single process loop.
+  * Web Platform:
+    - Deterministic seeded local RNG (random.Random(seed)) for reproducibility.
+    - Supports two distinct engines:
+      a) Simulation Engine: Fast reference linear model for regression/testing.
+      b) GRU Training Engine: Keras 3-block GRU in isolated Python 3.11 environment.
+    - Asynchronous background worker with progress tracking and safe cancellation.
+
+================================================================================
+SECTION 3: DATA PREPROCESSING & DATA LEAKAGE ANALYSIS
+================================================================================
+
+3.1 Preprocessing Workflow:
+  * Reference Paper:
+    - Standard data cleaning: removal of duplicates, NaNs, infs.
+    - Chi-Square (chi^2) feature selection: 80+ network features reduced to top 48.
+    - 70% Training / 30% Testing stratified split.
+  * Research Repository:
+    - CRITICAL ISSUE: Fits StandardScaler on the ENTIRE dataset before splitting.
+    - Test set statistics (mean, variance) leak into the training distribution.
+    - Hardcoded Windows file paths (e.g. C:\Users\HARIS\Desktop\...).
+  * Web Platform:
+    - Offers dual preprocessing modes:
+      a) 'clean' mode (Default): Splits 70/30 first; fits scaler strictly on training data.
+      b) 'legacy' mode: Replicates research scripts for exact historical comparison.
+    - Streaming CSV validation verifying exactly 48 numeric columns and binary target.
+    - Path confinement inside web/var/uploads/ to prevent directory traversal.
+
+================================================================================
+SECTION 4: SECURITY, AUTHENTICATION & INTEGRITY MECHANISMS
+================================================================================
+
+4.1 Client Authentication:
+  * Reference Paper:
+    - Trusted Authority issues unique auth_token_i to each registered SDN client.
+    - Server verifies auth_token_i in each communication packet.
+  * Research Repository:
+    - Generated a token at registration time, but NEVER checked it in update rounds.
+  * Web Platform:
+    - Implemented opt-in session token authentication via FLServer.authenticate_client().
+
+4.2 Replay Protection:
+  * Reference Paper:
+    - Timestamp freshness window: |t_now - t_i| <= Delta_t_win.
+  * Research Repository:
+    - No timestamps or round-bound nonces in client updates.
+  * Web Platform:
+    - Implemented nonce cache tracking (client_id, round_index) pairs.
+    - Rejects duplicate round submissions within the clock drift window (300s).
+
+4.3 Integrity & Digest Verification:
+  * Reference Paper:
+    - SHA-256 hash computed over encrypted weights: H_i = SHA-256(E(Delta W_i)).
+  * Research Repository:
+    - SHA-256 computed on individual 4,096-slot chunks, but not bound to round index.
+  * Web Platform:
+    - SHA-256 weight digest binds floating-point weights and round_index:
+      weight_digest = SHA-256(JSON(weights) : round=round_index).
+
+4.4 Byzantine Fault Detection:
+  * Reference Paper:
+    - Evaluates token, timestamp, hash, and CKKS format; faulty clients placed in M.
+    - Tolerates up to T_max = N/2 faulty clients; aborts round if |M| > T_max.
+  * Research Repository:
+    - Implemented a 3-sigma outlier heuristic on ciphertext serialized length.
+  * Web Platform:
+    - Re-implemented the 3-sigma outlier heuristic (opt-in via byzantine_check=True).
+    - Explicitly documents that size-based heuristics are NOT a Byzantine security guarantee.
+
+================================================================================
+SECTION 5: SDN CONTROLLER INTEGRATION & IPS MITIGATION
+================================================================================
+
+5.1 SDN Emulation & Controller Connection:
+  * Reference Paper:
+    - Conceptual SDN architecture utilizing OpenFlow switches and centralized controller.
+  * Research Repository:
+    - No SDN controller code, no OpenFlow integration, and no IPS code present.
+    - Standalone Python scripts only.
+  * Web Platform:
+    - Comprehensive modular adapter (SDNAdapter) supporting 3 operational modes:
+      a) 'mock': In-memory synthetic OpenFlow switch for Windows/Linux dev.
+      b) 'ryu': Native OpenFlow 1.3 controller integration via Ryu REST/event bus.
+      c) 'offline': Flow stats replay from captured network CSV logs.
+    - Maps 48 OpenFlow match/counter fields to the 48 IDS model features.
+
+5.2 IPS Prevention & Mitigation Policy:
+  * Reference Paper:
+    - Intrusion Detection System (IDS) only; proposes IPS as future extension.
+  * Research Repository:
+    - None.
+  * Web Platform:
+    - Full IPS Prevention extension implementing three operational modes:
+      a) 'detection_only': Logs predictions and generates alerts without rule changes.
+      b) 'manual_approval': Requires human operator review before rule installation.
+      c) 'automatic_blocking': Automatically installs drop rules in isolated labs.
+    - Enforces safety: switch DPID whitelists, priority capping (max 10), and atomic
+      emergency_stop() with complete rollback logging.
+
+================================================================================
+SECTION 6: EMPIRICAL PERFORMANCE & BENCHMARK SUMMARY
+================================================================================
+
+Target Benchmark Metrics (Paper HE-FL with N = 4 clients):
+  -----------------------------------------------------------------------------
+  Dataset         Accuracy    Precision    Recall      F1-Score    ROC AUC
+  -----------------------------------------------------------------------------
+  InSDN           99.94%      99.93%       99.95%      99.94%      0.9998
+  CICDDoS2017     99.08%      99.05%       99.12%      99.08%      0.9982
+  CICDDoS2019     99.62%      99.60%       99.65%      99.62%      0.9991
+  -----------------------------------------------------------------------------
+
+Web Platform Test Coverage & Quality Gate:
+  - Backend Unit & Integration Tests (.venv, Python 3.12): 105 Passed, 1 Skipped.
+  - Backend Full Keras GRU Suite (.venv-tf, Python 3.11): 104 Passed, 2 Skipped.
+  - Frontend Vitest & TypeScript Suite: 17 Passed, 0 Failures.
+  - Live Console Interface: Fully verified on http://127.0.0.1:5173.
+
+================================================================================
+END OF COMPARISON REPORT
+================================================================================

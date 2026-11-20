@@ -12,9 +12,12 @@ htmlcov/
 .ruff_cache/
 
 # Local runtime state: databases, uploaded datasets, run workspaces, models, keys
+var/
+var*/
 backend/var/
 backend/var*/
 *.db
+*.db-*
 *.sqlite
 *.sqlite3
 

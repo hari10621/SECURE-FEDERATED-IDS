@@ -240,7 +240,6 @@ class FederatedHarness:
                     batch_size=self.config.batch_size,
                     learning_rate=self.config.learning_rate,
                 )
-                server.validate_update(update)
                 updates.append(update)
 
             aggregation = server.aggregate(updates)

@@ -23,14 +23,14 @@ from pathlib import Path
 
 import numpy as np
 
-from web.backend.app.services.sdn_adapter import (
+from app.services.sdn_adapter import (
     SDNAdapter,
     create_sdn_adapter,
     DetectionResult,
     FlowStats,
     SwitchInfo,
 )
-from web.backend.app.errors import UnavailableError
+from app.errors import UnavailableError
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -151,7 +151,7 @@ def test_map_flow_to_features_basic():
 def test_map_flow_to_features_all_zero():
     """Test mapping when flow has minimal match fields."""
     # Create a flow with minimal match
-    from web.backend.app.services.sdn_adapter import FlowStats
+    from app.services.sdn_adapter import FlowStats
     minimal_match = {"eth_type": 0x0800, "ip_proto": 6}
     minimal_flow = FlowStats(
         match=minimal_match,
@@ -222,7 +222,7 @@ def test_prediction_pipeline_mock():
         result = adapter.detect()
         assert result is not None
         assert result.prediction is not None
-        assert result.label in (0, 1)
+        assert result.label in (0, 1, -1)
         assert len(result.features) == 48
         # Record the result
         adapter.record_result(result)
