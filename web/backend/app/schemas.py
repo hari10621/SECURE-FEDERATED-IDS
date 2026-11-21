@@ -95,8 +95,8 @@ class ExperimentCreate(BaseModel):
     @field_validator("client_count")
     @classmethod
     def _allowed_clients(cls, value: int) -> int:
-        if value not in {4, 8, 12}:
-            raise ValueError("client_count must be one of 4, 8, 12")
+        if value not in {2, 3, 4, 8, 12}:
+            raise ValueError("client_count must be one of 2, 3, 4, 8, 12")
         return value
 
 

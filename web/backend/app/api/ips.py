@@ -10,6 +10,8 @@ Provides:
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
 
 from ..services.sdn_adapter import DetectionResult, MitigationRequest as MR, MitigationMode as MM

@@ -39,8 +39,8 @@ class SimulationService:
             return False, "Dataset is not compatible with the 48-feature research schema."
         if dataset.feature_count != EXPECTED_FEATURE_COUNT:
             return False, f"Simulation requires exactly {EXPECTED_FEATURE_COUNT} features."
-        if experiment.client_count not in {4, 8, 12}:
-            return False, "client_count must be one of 4, 8, 12."
+        if experiment.client_count not in {2, 3, 4, 8, 12}:
+            return False, "client_count must be one of 2, 3, 4, 8, 12."
         return (
             True,
             "Plaintext simulation is available. No encryption is performed and "

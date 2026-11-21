@@ -29,16 +29,22 @@ from .security_service import SecurityService
 
 ALLOWED_SCRIPTS: dict[DatasetType, dict[int, str | None]] = {
     DatasetType.INSDN: {
+        2: "InSDN_2.py",
+        3: "InSDN_3.py",
         4: "InSDN_4.py",
         8: "InSDN_8.py",
         12: "InSDN_12.py",
     },
     DatasetType.CICIDS2017: {
+        2: "CICDDoS17_2.py",
+        3: "CICDDoS17_3.py",
         4: "CICDDoS17_4.py",
         8: None,
         12: "CICDDoS17_12.py",
     },
     DatasetType.CICIDS2019: {
+        2: "CICDDoS19_2.py",
+        3: "CICDDoS19_3.py",
         4: "CICDDoD19_4.py",
         8: "CICDDoS19_8.py",
         12: "CICDDoS19_12.py",
@@ -72,8 +78,6 @@ class ResearchAdapter:
         return ALLOWED_SCRIPTS.get(dataset_type, {}).get(client_count)
 
     def target_reason(self, dataset_type: DatasetType, client_count: int) -> str | None:
-        if client_count not in {4, 8, 12}:
-            return "client_count must be one of 4, 8, 12"
         script = self.script_for(dataset_type, client_count)
         if script is None:
             return (
