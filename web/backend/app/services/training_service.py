@@ -17,6 +17,7 @@ from ..config import Settings
 from ..domain.dataset import LoadedDataset, PreprocessedDataset, load_csv_dataset, preprocess
 from ..domain.federated.keras_backend import KerasGRUBackend
 from ..domain.federated.round import (
+    EncryptedFederatedHarness,
     FederatedAborted,
     FederatedConfig,
     FederatedHarness,
@@ -32,6 +33,7 @@ from ..models import Dataset, Experiment
 from ..schemas import TrainingRequest
 from ..storage.paths import StoragePaths
 from .dataset_service import EXPECTED_FEATURE_COUNT, DatasetService
+from .encryption_service import EncryptionService
 from .job_manager import JobContext
 
 ARTIFACT_FORMAT = "securefed-training-v1"
@@ -52,11 +54,13 @@ class TrainingService:
         paths: StoragePaths,
         *,
         backend_factory: Callable[[], Any] | None = None,
+        encryption: EncryptionService | None = None,
     ) -> None:
         self.settings = settings
         self.datasets = datasets
         self.paths = paths
         self.backend_factory = backend_factory or KerasGRUBackend
+        self.encryption = encryption or EncryptionService(settings)
 
     def availability(
         self,
@@ -75,10 +79,17 @@ class TrainingService:
         if experiment.client_count not in {4, 8, 12}:
             return False, "client_count must be one of 4, 8, 12."
         if request is not None and request.require_encryption:
+            if not self.encryption.is_available():
+                return (
+                    False,
+                    "Encrypted GRU training is unavailable: the TenSEAL CKKS "
+                    "backend is disabled. Set SECUREFED_ENABLE_CKKS=1.",
+                )
             return (
-                False,
-                "Encrypted GRU training is unavailable: no verified native CKKS "
-                "runtime is installed.",
+                True,
+                "Encrypted TenSEAL CKKS GRU training is available. A per-run "
+                "Trusted Authority keypair is generated; the secret context is "
+                "held only by the client keyring and is never persisted.",
             )
         backend = self.backend_factory()
         if backend.research_model:
@@ -122,11 +133,12 @@ class TrainingService:
             seed=request.seed,
         )
 
-        threshold = (
-            request.threshold
-            if request.threshold is not None
-            else experiment.client_count // 2 + 1
-        )
+        if request.threshold is not None:
+            threshold = request.threshold
+        elif request.require_encryption:
+            threshold = max(1, experiment.client_count - experiment.client_count // 2)
+        else:
+            threshold = experiment.client_count // 2 + 1
         config = FederatedConfig(
             num_clients=experiment.client_count,
             rounds=request.rounds,
@@ -146,14 +158,35 @@ class TrainingService:
         def progress(fraction: float, message: str) -> None:
             context.progress(0.20 + 0.72 * max(0.0, min(1.0, fraction)), message)
 
-        harness = FederatedHarness(
-            backend,
-            config,
-            abort_check=lambda: context.cancel_requested,
-            progress=progress,
-            final_weights_sink=lambda weights: captured_weights.extend(weights),
-            mode="plaintext_federated_training",
-        )
+        if request.require_encryption:
+            if not self.encryption.is_available():
+                raise UnavailableError(
+                    "encrypted training is unavailable; the TenSEAL CKKS backend "
+                    "is disabled"
+                )
+            material = self.encryption.generate_key_material(
+                parties=experiment.client_count,
+                threshold=threshold,
+            )
+            harness: FederatedHarness | EncryptedFederatedHarness = EncryptedFederatedHarness(
+                backend,
+                config,
+                self.encryption.server_backend(material),
+                self.encryption.client_keyring(material),
+                abort_check=lambda: context.cancel_requested,
+                progress=progress,
+                final_weights_sink=lambda weights: captured_weights.extend(weights),
+                context_hash=material.context_hash,
+            )
+        else:
+            harness = FederatedHarness(
+                backend,
+                config,
+                abort_check=lambda: context.cancel_requested,
+                progress=progress,
+                final_weights_sink=lambda weights: captured_weights.extend(weights),
+                mode="plaintext_federated_training",
+            )
         context.progress(0.18, "initialising Keras GRU round harness")
         try:
             result = harness.run(prepared)
@@ -169,7 +202,8 @@ class TrainingService:
         result["workload"] = {
             "implementation": "in-process simulated clients",
             "independent_clients": False,
-            "encryption": False,
+            "encryption": bool(result.get("encrypted", False)),
+            "ckks_backend": (result.get("crypto") or {}).get("backend"),
             "row_cap": row_cap,
         }
         result["legacy_differences"] = list(result.get("legacy_differences", [])) + [
@@ -209,6 +243,7 @@ class TrainingService:
         )
         directory.mkdir(parents=True, exist_ok=True)
 
+        encrypted = bool(result.get("encrypted", False))
         weights_name = artifact_filename(dataset.dataset_type, experiment.client_count)
         weights_path = self.paths.ensure_within(
             directory / weights_name,
@@ -228,13 +263,16 @@ class TrainingService:
                 "experiment_id": experiment.id,
                 "dataset_id": dataset.id,
                 "dataset_sha256": dataset.sha256,
-                "mode": "plaintext_federated_training",
-                "encrypted": False,
+                "mode": result.get("mode", "plaintext_federated_training"),
+                "encrypted": encrypted,
                 "parity": "unverified",
                 "rounds": request.rounds,
                 "local_epochs": request.local_epochs,
                 "seed": request.seed,
                 "aggregate_digest": result.get("aggregate_digest"),
+                "encryption": result.get("crypto"),
+                "ta_context_hash": result.get("ta_context_hash"),
+                "ciphertext": result.get("ciphertext"),
             },
         )
 
@@ -274,6 +312,6 @@ class TrainingService:
             "preprocessing_sha256": preprocessing_digest,
             "result_file": relative(result_path),
             "result_sha256": result_digest,
-            "encrypted": False,
+            "encrypted": encrypted,
             "parity": "unverified",
         }

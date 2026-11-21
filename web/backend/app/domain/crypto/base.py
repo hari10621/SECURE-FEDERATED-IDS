@@ -1,9 +1,16 @@
 """Cryptographic boundary for the federated core.
 
-The federated harness may only use a backend whose status is verified. The
-native CKKS extension is absent, so every real backend here reports
-``available: false``. A backend must never return placeholder or fabricated
-ciphertext; callers have to treat unavailability as fail-closed.
+The federated harness may only use a backend whose status is verified. Backends
+must never return placeholder or fabricated ciphertext; callers have to treat
+unavailability as fail-closed.
+
+Two protocols are represented:
+
+* ``CryptoBackend`` is the legacy threshold-CKKS surface (DKG/Shamir).
+* ``CentralizedCryptoBackend`` is the paper's protocol: an offline Trusted
+  Authority issues one shared keypair, clients encrypt with the public context,
+  the server aggregates homomorphically, and clients decrypt with the secret
+  context. The server-side backend never holds the secret key.
 """
 
 from __future__ import annotations
@@ -29,6 +36,15 @@ def default_ckks_params(*, parties: int, threshold: int) -> dict[str, int]:
         "mult_depth": CKKS_MULT_DEPTH,
         "scale_bits": CKKS_SCALE_BITS,
     }
+
+
+def chunk_count(parameter_count: int, batch_size: int = CKKS_BATCH_SIZE) -> int:
+    """Number of CKKS slots-batches needed for a flat parameter vector."""
+    if parameter_count <= 0:
+        raise ValueError("parameter_count must be positive")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    return (parameter_count + batch_size - 1) // batch_size
 
 
 @dataclass(frozen=True)
@@ -69,4 +85,32 @@ class CryptoBackend(Protocol):
 
     def threshold_decrypt(
         self, chunks: list[bytes], party_ids: list[int]
+    ) -> list[float]: ...
+
+
+@runtime_checkable
+class CentralizedCryptoBackend(Protocol):
+    """Paper-protocol CKKS surface with a single TA-issued shared keypair.
+
+    A server-side instance holds only the public context. Decryption is a
+    client-side operation performed by an instance that also holds the secret
+    context; the server must never be given that instance.
+    """
+
+    batch_size: int
+
+    def status(self) -> CryptoStatus: ...
+
+    def initialize(self, params: dict[str, int]) -> None: ...
+
+    def encrypt_vector(self, values: list[float]) -> list[bytes]: ...
+
+    def add_encrypted(self, left: bytes, right: bytes) -> bytes: ...
+
+    def multiply_by_scalar(self, ciphertext: bytes, scalar: float) -> bytes: ...
+
+    def validate_ciphertext(self, ciphertext: bytes) -> bool: ...
+
+    def decrypt_aggregate(
+        self, chunks: list[bytes], expected_count: int
     ) -> list[float]: ...

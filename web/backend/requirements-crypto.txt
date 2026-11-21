@@ -1,0 +1,5 @@
+# Optional TenSEAL CKKS runtime for the paper's centralized Trusted Authority
+# protocol. Windows wheels are available for CPython 3.10-3.12 (verified with
+# Python 3.12.10 and TenSEAL 0.3.18). The paper used TenSEAL 0.3.16; the API is
+# compatible for the operations used here.
+tenseal==0.3.18

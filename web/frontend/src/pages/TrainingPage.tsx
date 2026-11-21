@@ -238,7 +238,7 @@ export function TrainingPage() {
       <PageHeader
         eyebrow="Operations"
         title="Federated Training"
-        description="Create experiments, run plaintext simulation or GRU training, and inspect results. Encrypted execution remains unavailable until a verified CKKS backend exists."
+        description="Create experiments, run plaintext simulation or GRU training, and inspect results. Encrypted execution is admitted only when the backend reports TenSEAL CKKS available."
         actions={
           <Button
             variant="secondary"
@@ -435,11 +435,12 @@ export function TrainingPage() {
             </div>
 
             <Alert tone="warning" title="Execution modes are separate">
-              The encrypted research path stays disabled until a verified native CKKS backend is
-              admitted. Plaintext simulation uses a reference linear harness double. GRU training
-              runs the research architecture through the installed TensorFlow runtime with
-              conservative smoke defaults of one round and one local epoch; request a full legacy
-              configuration explicitly. Neither path is an encryption or parity claim.
+              Encrypted training uses TenSEAL CKKS with a per-run Trusted Authority keypair and
+              stays disabled until the backend reports it available. Plaintext simulation uses a
+              reference linear harness double. GRU training runs the research architecture through
+              the installed TensorFlow runtime with conservative smoke defaults of one round and
+              one local epoch; request a full legacy configuration explicitly. Plaintext runs are
+              never labelled encrypted, and no mode is a parity claim.
             </Alert>
 
             <div className="flex flex-wrap items-start gap-2">
@@ -601,8 +602,8 @@ function ExperimentResult({ result }: { result: FederatedResult }) {
         Mode: {humanize(result.mode)} · encrypted: {String(Boolean(result.encrypted))} · parity:{' '}
         {result.parity ?? 'unverified'}.{' '}
         {result.encrypted
-          ? 'The backend reports an encrypted execution path; treat it as unverified until the CKKS evidence is reviewed.'
-          : 'No CKKS, DKG, or threshold decryption was performed. This is not a legacy-parity claim.'}
+          ? 'TenSEAL CKKS encryption, homomorphic aggregation, and client-side decryption executed for this run. Metric parity with the paper is still unverified.'
+          : 'No CKKS encryption was performed. This is not a legacy-parity claim.'}
       </Alert>
 
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted">

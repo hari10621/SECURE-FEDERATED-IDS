@@ -18,7 +18,7 @@ export function EncryptionPage() {
       <PageHeader
         eyebrow="Security"
         title="Homomorphic Encryption"
-        description="The encrypted research path is fail-closed. This page reports the actual backend status and does not generate keys or ciphertext."
+        description="Reports the real CKKS backend. When TenSEAL is enabled, each encrypted run performs a per-run Trusted Authority ceremony and keeps the secret context in the client keyring only."
         actions={
           <Button
             variant="secondary"
@@ -48,16 +48,16 @@ export function EncryptionPage() {
             <MetricCard
               label="Availability"
               value={available ? 'Available' : 'Unavailable'}
-              hint="Encrypted execution requires a verified backend before it can start."
+              hint="TenSEAL is detected by the backend and can run a per-run TA ceremony."
               icon={<KeyRound className="size-4" />}
               tone={available ? 'success' : 'warning'}
             />
             <MetricCard
               label="Encrypted runs"
-              value={available ? 'Requires review' : 'Blocked'}
-              hint="The start endpoint remains unavailable until verification is complete."
+              value={available ? 'Enabled' : 'Blocked'}
+              hint="Encrypted training is admitted only when the backend reports available."
               icon={<ShieldOff className="size-4" />}
-              tone="warning"
+              tone={available ? 'success' : 'warning'}
             />
           </div>
 
@@ -75,14 +75,26 @@ export function EncryptionPage() {
                 </p>
                 <div className="mt-4">
                   <UnavailableState
-                    title="Encrypted execution is not admitted"
-                    reason="The console will not enable key generation, encryption, or the research start endpoint until a verified native CKKS backend is present."
-                    items={[
-                      'Native CKKS library compatible with the backend ABI (the legacy artifact targets Linux CPython 3.8 / OpenFHE).',
-                      'Distributed key generation and threshold decryption wired into the federated round harness.',
-                      'Verified key lifecycle, context parameters, serialization, and failure handling.',
-                      'A reproducible parity check against the approved reference behaviour.',
-                    ]}
+                    title={available ? 'Encrypted execution is admitted' : 'Encrypted execution is not admitted'}
+                    reason={
+                      available
+                        ? 'TenSEAL CKKS is installed. The backend generates a fresh shared keypair for each encrypted run; the aggregation server receives only the public context.'
+                        : 'Enable the backend with SECUREFED_ENABLE_CKKS=1 after installing requirements-crypto.txt. Until then every cryptographic operation fails closed.'
+                    }
+                    items={
+                      available
+                        ? [
+                            'Offline Trusted Authority issues one shared CKKS keypair per run.',
+                            'Clients encrypt ΔW with the public context and hash the ciphertext.',
+                            'The server homomorphically aggregates ciphertext only; it never receives plaintext weights.',
+                            'Clients decrypt the aggregate with the secret context held by the client keyring.',
+                          ]
+                        : [
+                            'Install the optional TenSEAL runtime: requirements-crypto.txt.',
+                            'Set SECUREFED_ENABLE_CKKS=1 in the backend environment.',
+                            'No placeholder keys or fabricated ciphertext are ever produced.',
+                          ]
+                    }
                   />
                 </div>
               </CardBody>
@@ -98,15 +110,15 @@ export function EncryptionPage() {
                 </p>
                 <Button
                   variant="secondary"
-                  disabledReason="Key generation requires a verified CKKS backend and an approved key lifecycle."
+                  disabledReason="Keys are generated per encrypted training run; the console never receives secret material."
                   icon={<KeyRound className="size-4" aria-hidden="true" />}
                 >
                   Generate CKKS keys
                 </Button>
-                <Alert tone="warning" title="No encryption claim">
-                  Results from the plaintext harness are never labelled encrypted. The backend
-                  records <code className="rounded bg-navy-950 px-1 py-0.5 font-mono text-[11px]">encrypted: false</code>{' '}
-                  for those runs.
+                <Alert tone={available ? 'info' : 'warning'} title={available ? 'Real CKKS path' : 'No encryption claim'}>
+                  {available
+                    ? 'Encrypted runs record encrypted: true only after TenSEAL encryption, homomorphic aggregation, and client-side decryption actually execute.'
+                    : 'Results from the plaintext harness are never labelled encrypted. The backend records encrypted: false for those runs.'}
                 </Alert>
               </CardBody>
             </Card>

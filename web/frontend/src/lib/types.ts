@@ -37,6 +37,11 @@ export interface EncryptionStatusResponse {
   available: boolean
   backend: string
   reason: string
+  mode?: string
+  encryption_claimed?: boolean
+  params?: Record<string, number>
+  key_ceremony?: string
+  secret_key_location?: string
 }
 
 export interface SdnStatusResponse {

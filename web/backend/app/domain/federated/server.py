@@ -18,15 +18,24 @@ cryptographic guarantees.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import math
+import secrets
 import statistics
 import time
 from dataclasses import dataclass
 from typing import Sequence
 
 from ...errors import ConflictError, InputValidationError
-from .client import ClientUpdate, weight_digest
+from ..crypto.base import CKKS_BATCH_SIZE, CentralizedCryptoBackend, chunk_count
+from .client import (
+    ClientUpdate,
+    EncryptedClientUpdate,
+    ciphertext_digest,
+    weight_digest,
+)
 
 WEIGHTING_MODES = ("legacy", "sample")
 
@@ -58,6 +67,43 @@ class AggregationResult:
         }
 
 
+@dataclass(frozen=True)
+class AuthToken:
+    client_id: str
+    token: str
+    timestamp: float
+    nonce: str
+
+
+@dataclass(frozen=True)
+class EncryptedAggregationResult:
+    participants: tuple[str, ...]
+    chunks: tuple[bytes, ...]
+    scaling_factors: tuple[float, ...]
+    aggregate_digest: str
+    aborted: bool
+    reason: str | None
+    byzantine_flagged: tuple[str, ...]
+    validation_errors: tuple[tuple[str, str], ...] = ()
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "participants": list(self.participants),
+            "scaling_factors": [float(value) for value in self.scaling_factors],
+            "aggregate_digest": self.aggregate_digest,
+            "chunk_count": len(self.chunks),
+            "aborted": self.aborted,
+            "reason": self.reason,
+            "byzantine_flagged": list(self.byzantine_flagged),
+            "validation_errors": dict(self.validation_errors),
+        }
+
+
+def _auth_token_digest(client_id: str, timestamp: float, nonce: str) -> str:
+    payload = f"{client_id}{timestamp:.6f}{nonce}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 class FLServer:
     def __init__(
         self,
@@ -68,6 +114,7 @@ class FLServer:
         weighting: str = "sample",
         byzantine_threshold: int = 2,
         byzantine_check: bool = False,
+        byzantine_max_faults: int | None = None,
         batch_size: int = 32,
         max_clock_drift_seconds: float = 300.0,
     ) -> None:
@@ -83,17 +130,25 @@ class FLServer:
             raise InputValidationError("batch_size must be positive")
         if max_clock_drift_seconds <= 0:
             raise InputValidationError("max_clock_drift_seconds must be positive")
+        effective_max_faults = (
+            num_clients // 2 if byzantine_max_faults is None else byzantine_max_faults
+        )
+        if not 0 <= effective_max_faults <= num_clients:
+            raise InputValidationError("byzantine_max_faults must be between 0 and num_clients")
         self.num_clients = num_clients
         self.threshold = threshold
         self.expected_parameter_count = expected_parameter_count
         self.weighting = weighting
         self.byzantine_threshold = byzantine_threshold
         self.byzantine_check = byzantine_check
+        self.byzantine_max_faults = effective_max_faults
         self.batch_size = batch_size
         self.max_clock_drift_seconds = max_clock_drift_seconds
         self._clients: dict[str, RegisteredClient] = {}
         self._sessions: dict[str, str] = {}  # client_id -> session_token
         self._round_nonces: dict[tuple[str, int], float] = {}  # (client_id, round_index) -> timestamp
+        self._issued_tokens: dict[tuple[str, str], tuple[str, float]] = {}
+        self._used_token_nonces: set[str] = set()
 
     @property
     def registered_clients(self) -> tuple[RegisteredClient, ...]:
@@ -119,6 +174,47 @@ class FLServer:
         # In a full system, session_tokens would be bound to mTLS certificates
         # or signed JWTs. Here we record the token for opt-in authentication.
         self._sessions[client_id] = session_token
+        return True
+
+    def issue_auth_token(self, client_id: str, *, now: float | None = None) -> AuthToken:
+        """Issue a paper-style ``hash(client_id + timestamp + nonce)`` token."""
+        if client_id not in self._clients:
+            raise InputValidationError(f"cannot issue a token to unregistered client: {client_id}")
+        timestamp = float(time.time() if now is None else now)
+        nonce = secrets.token_hex(16)
+        token = _auth_token_digest(client_id, timestamp, nonce)
+        self._issued_tokens[(client_id, nonce)] = (token, timestamp)
+        return AuthToken(
+            client_id=client_id,
+            token=token,
+            timestamp=timestamp,
+            nonce=nonce,
+        )
+
+    def verify_auth_token(
+        self,
+        client_id: str,
+        token: str,
+        timestamp: float,
+        nonce: str,
+        *,
+        now: float | None = None,
+    ) -> bool:
+        """Verify a token once, enforcing freshness and nonce replay protection."""
+        record = self._issued_tokens.get((client_id, nonce))
+        if record is None:
+            return False
+        expected, issued_at = record
+        if nonce in self._used_token_nonces:
+            return False
+        if not hmac.compare_digest(expected, token):
+            return False
+        current = float(time.time() if now is None else now)
+        if abs(current - issued_at) > self.max_clock_drift_seconds:
+            return False
+        if abs(current - float(timestamp)) > self.max_clock_drift_seconds:
+            return False
+        self._used_token_nonces.add(nonce)
         return True
 
     def validate_update(self, update: ClientUpdate) -> None:
@@ -148,7 +244,9 @@ class FLServer:
         else:
             self._round_nonces[nonce_key] = time.time()
 
-    def _scaling_factors(self, updates: Sequence[ClientUpdate]) -> list[float]:
+    def _scaling_factors(
+        self, updates: Sequence[ClientUpdate | EncryptedClientUpdate]
+    ) -> list[float]:
         counts = [update.sample_count for update in updates]
         if any(count <= 0 for count in counts):
             raise InputValidationError("sample counts must be positive")
@@ -181,6 +279,123 @@ class FLServer:
             for update, size in zip(updates, sizes)
             if abs(size - mean) > 3 * spread
         ]
+
+    def _encrypted_update_problem(
+        self,
+        update: EncryptedClientUpdate,
+        crypto: CentralizedCryptoBackend,
+    ) -> str | None:
+        if update.client_id not in self._clients:
+            return "unregistered client"
+        if update.sample_count <= 0:
+            return "no samples"
+        batch_size = int(getattr(crypto, "batch_size", CKKS_BATCH_SIZE))
+        expected_chunks = chunk_count(self.expected_parameter_count, batch_size)
+        if len(update.chunks) != expected_chunks:
+            return f"expected {expected_chunks} ciphertext chunks, got {len(update.chunks)}"
+        if not self.verify_auth_token(
+            update.client_id,
+            update.auth_token,
+            update.timestamp,
+            update.nonce,
+        ):
+            return "invalid, stale, or replayed auth token"
+        if ciphertext_digest(update.chunks) != update.ciphertext_digest:
+            return "ciphertext digest mismatch"
+        for chunk in update.chunks:
+            if not crypto.validate_ciphertext(chunk):
+                return "malformed CKKS ciphertext"
+        return None
+
+    def aggregate_encrypted(
+        self,
+        updates: Sequence[EncryptedClientUpdate],
+        crypto: CentralizedCryptoBackend,
+    ) -> EncryptedAggregationResult:
+        """Verify, filter, and homomorphically aggregate ciphertext updates.
+
+        The server never receives plaintext weights in this path. Invalid
+        updates are flagged; the round aborts when the number of flagged
+        clients exceeds the paper's ``Tmax = N/2``.
+        """
+        participants = tuple(update.client_id for update in updates)
+        valid: list[EncryptedClientUpdate] = []
+        flagged: list[str] = []
+        errors: list[tuple[str, str]] = []
+        for update in updates:
+            problem = self._encrypted_update_problem(update, crypto)
+            if problem is None:
+                valid.append(update)
+            else:
+                flagged.append(update.client_id)
+                errors.append((update.client_id, problem))
+
+        if len(flagged) > self.byzantine_max_faults:
+            return EncryptedAggregationResult(
+                participants=participants,
+                chunks=(),
+                scaling_factors=(),
+                aggregate_digest="",
+                aborted=True,
+                reason=(
+                    f"Byzantine threshold exceeded: {len(flagged)} flagged > "
+                    f"Tmax={self.byzantine_max_faults}"
+                ),
+                byzantine_flagged=tuple(flagged),
+                validation_errors=tuple(errors),
+            )
+
+        if len(valid) < self.threshold:
+            return EncryptedAggregationResult(
+                participants=participants,
+                chunks=(),
+                scaling_factors=(),
+                aggregate_digest="",
+                aborted=True,
+                reason=(
+                    f"insufficient valid participants: {len(valid)} < threshold "
+                    f"{self.threshold}"
+                ),
+                byzantine_flagged=tuple(flagged),
+                validation_errors=tuple(errors),
+            )
+
+        factors = self._scaling_factors(valid)
+        aggregate: list[bytes] | None = None
+        for update, factor in zip(valid, factors):
+            scaled = [
+                crypto.multiply_by_scalar(chunk, factor) for chunk in update.chunks
+            ]
+            if aggregate is None:
+                aggregate = scaled
+            else:
+                aggregate = [
+                    crypto.add_encrypted(left, right)
+                    for left, right in zip(aggregate, scaled)
+                ]
+        if aggregate is None:
+            return EncryptedAggregationResult(
+                participants=participants,
+                chunks=(),
+                scaling_factors=(),
+                aggregate_digest="",
+                aborted=True,
+                reason="no ciphertext was aggregated",
+                byzantine_flagged=tuple(flagged),
+                validation_errors=tuple(errors),
+            )
+
+        chunks = tuple(aggregate)
+        return EncryptedAggregationResult(
+            participants=tuple(update.client_id for update in valid),
+            chunks=chunks,
+            scaling_factors=tuple(factors),
+            aggregate_digest=ciphertext_digest(chunks),
+            aborted=False,
+            reason=None,
+            byzantine_flagged=tuple(flagged),
+            validation_errors=tuple(errors),
+        )
 
     def aggregate(self, updates: Sequence[ClientUpdate]) -> AggregationResult:
         # Step 1: authenticate each client (opt-in; no token = unauthenticated but not rejected

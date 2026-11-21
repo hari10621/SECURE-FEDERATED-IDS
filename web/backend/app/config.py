@@ -54,6 +54,8 @@ class Settings(BaseModel):
     enable_simulation: bool = False
     enable_training: bool = False
     enable_predictions: bool = False
+    enable_ckks: bool = False
+    ckks_backend: str = "tenseal"
 
     job_workers: int = Field(default=1, ge=1, le=8)
     api_token: str | None = None
@@ -103,6 +105,8 @@ class Settings(BaseModel):
             "enable_simulation": "SECUREFED_ENABLE_SIMULATION",
             "enable_training": "SECUREFED_ENABLE_TRAINING",
             "enable_predictions": "SECUREFED_ENABLE_PREDICTIONS",
+            "enable_ckks": "SECUREFED_ENABLE_CKKS",
+            "ckks_backend": "SECUREFED_CKKS_BACKEND",
             "job_workers": "SECUREFED_JOB_WORKERS",
             "api_token": "SECUREFED_API_TOKEN",
             "log_level": "SECUREFED_LOG_LEVEL",

@@ -96,7 +96,7 @@ def create_app(
         security = SecurityService(settings)
         jobs_service = JobService(db)
         jobs_service.recover_interrupted()
-        encryption = EncryptionService()
+        encryption = EncryptionService(settings)
         datasets_service = DatasetService(db, paths, security, settings)
         experiments_service = ExperimentService(db, datasets_service)
         experiments_service.recover_interrupted()
@@ -105,7 +105,9 @@ def create_app(
         sdn_service = SDNService()
         adapter = ResearchAdapter(settings, paths, security)
         simulation_service = SimulationService(settings, datasets_service)
-        training_service = TrainingService(settings, datasets_service, paths)
+        training_service = TrainingService(
+            settings, datasets_service, paths, encryption=encryption
+        )
         handlers = dict(application.state.job_handlers)
         job_manager = JobManager(db, jobs_service, handlers, settings.job_workers)
         federated = FederatedService(

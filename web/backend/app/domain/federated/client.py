@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from ...errors import InputValidationError
+from ..crypto.base import CentralizedCryptoBackend
 from .backends import TrainingBackend
 
 
@@ -62,6 +63,48 @@ def weight_digest(weights: Sequence[float], round_index: int = 0) -> str:
         [float(value) for value in weights], separators=(",", ":"),
     ) + f":round={round_index}"
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class EncryptedClientUpdate:
+    """Ciphertext-only update. The aggregation server never sees weights."""
+
+    client_id: str
+    chunks: tuple[bytes, ...]
+    sample_count: int
+    ciphertext_digest: str
+    round_index: int
+    auth_token: str
+    timestamp: float
+    nonce: str
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "client_id": self.client_id,
+            "sample_count": self.sample_count,
+            "ciphertext_digest": self.ciphertext_digest,
+            "round_index": self.round_index,
+            "chunk_count": len(self.chunks),
+            "auth_token_present": bool(self.auth_token),
+        }
+
+
+def ciphertext_digest(chunks: Sequence[bytes]) -> str:
+    """SHA-256 over length-prefixed serialized ciphertext chunks."""
+    hasher = hashlib.sha256()
+    for chunk in chunks:
+        hasher.update(len(chunk).to_bytes(8, "big"))
+        hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def delta_weights(
+    local_weights: Sequence[float], global_weights: Sequence[float]
+) -> list[float]:
+    """Paper update rule: ``ΔW = W_local - W_global``."""
+    if len(local_weights) != len(global_weights):
+        raise InputValidationError("local and global weight counts differ")
+    return [float(local) - float(global_) for local, global_ in zip(local_weights, global_weights)]
 
 
 @dataclass
@@ -115,4 +158,40 @@ class SimulatedClient:
             digest=weight_digest(weights, round_index=round_index),
             round_index=round_index,
             session_token="",
+        )
+
+    def train_encrypted(
+        self,
+        global_weights: Sequence[float],
+        backend: TrainingBackend,
+        crypto: CentralizedCryptoBackend,
+        *,
+        round_index: int,
+        epochs: int,
+        batch_size: int,
+        learning_rate: float,
+        auth_token: str,
+        timestamp: float,
+        nonce: str,
+    ) -> EncryptedClientUpdate:
+        """Train locally, compute ΔW, and encrypt it with the public context."""
+        update = self.train(
+            global_weights,
+            backend,
+            round_index=round_index,
+            epochs=epochs,
+            batch_size=batch_size,
+            learning_rate=learning_rate,
+        )
+        delta = delta_weights(update.weights, global_weights)
+        chunks = tuple(crypto.encrypt_vector(delta))
+        return EncryptedClientUpdate(
+            client_id=self.client_id,
+            chunks=chunks,
+            sample_count=self.sample_count,
+            ciphertext_digest=ciphertext_digest(chunks),
+            round_index=round_index,
+            auth_token=auth_token,
+            timestamp=float(timestamp),
+            nonce=nonce,
         )

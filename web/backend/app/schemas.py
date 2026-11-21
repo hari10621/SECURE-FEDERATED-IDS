@@ -243,6 +243,11 @@ class EncryptionStatusResponse(BaseModel):
     available: bool
     backend: str
     reason: str
+    mode: str = "unavailable"
+    encryption_claimed: bool = False
+    params: dict[str, Any] = Field(default_factory=dict)
+    key_ceremony: str = "disabled"
+    secret_key_location: str = "none"
 
 
 class SDNStatusResponse(BaseModel):
