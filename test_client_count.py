@@ -1,20 +1,22 @@
+from pathlib import Path
 import sys
-sys.path.insert(0, r'C:\Users\HARIS\Desktop\SecureFed-IDS\web\backend')
 
-from app.schemas import TrainingRequest
+backend_dir = Path(__file__).resolve().parent / "web" / "backend"
+sys.path.insert(0, str(backend_dir))
+
+from app.schemas import ExperimentCreate
 
 # Test that client_count=2 is accepted
-req = TrainingRequest(client_count=2, rounds=1, local_epochs=1, batch_size=8, learning_rate=0.001)
-d = req.model_dump()
-print('TrainingRequest with client_count=2: OK - rounds=%s, client_count=%s' % (d['rounds'], d['client_count']))
+exp2 = ExperimentCreate(name="2-Client Exp", dataset_id="dataset_001", client_count=2)
+print(f"ExperimentCreate with client_count=2: OK - {exp2.name}, client_count={exp2.client_count}")
 
-req2 = TrainingRequest(client_count=3, rounds=1, local_epochs=1, batch_size=8, learning_rate=0.001)
-d2 = req2.model_dump()
-print('TrainingRequest with client_count=3: OK - rounds=%s, client_count=%s' % (d2['rounds'], d2['client_count']))
+# Test that client_count=3 is accepted
+exp3 = ExperimentCreate(name="3-Client Exp", dataset_id="dataset_001", client_count=3)
+print(f"ExperimentCreate with client_count=3: OK - {exp3.name}, client_count={exp3.client_count}")
 
 # Test that invalid count still fails
 try:
-    req3 = TrainingRequest(client_count=5, rounds=1, local_epochs=1, batch_size=8, learning_rate=0.001)
-    print('ERROR: client_count=5 should have been rejected')
+    exp5 = ExperimentCreate(name="5-Client Exp", dataset_id="dataset_001", client_count=5)
+    print("ERROR: client_count=5 should have been rejected")
 except ValueError as e:
-    print('client_count=5 correctly rejected: %s' % e)
+    print(f"client_count=5 correctly rejected: {e}")

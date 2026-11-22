@@ -1,7 +1,10 @@
 """Demo: Verify 2-3 client support in the GRU federated learning prototype."""
 
+from pathlib import Path
 import sys
-sys.path.insert(0, r'C:\Users\HARIS\Desktop\SecureFed-IDS\web\backend')
+
+backend_dir = Path(__file__).resolve().parent / "web" / "backend"
+sys.path.insert(0, str(backend_dir))
 
 from app.schemas import ExperimentCreate
 

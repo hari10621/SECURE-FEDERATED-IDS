@@ -301,12 +301,14 @@ export function TrainingPage() {
                   ))}
                 </Select>
               </Field>
-              <Field label="Clients" htmlFor="experiment-clients" required hint="Legacy sizes: 4, 8, or 12.">
+              <Field label="Clients" htmlFor="experiment-clients" required hint="Supported sizes: 2, 3, 4, 8, or 12.">
                 <Select
                   id="experiment-clients"
                   value={clientCount}
                   onChange={(event) => setClientCount(Number(event.target.value))}
                 >
+                  <option value={2}>2 clients</option>
+                  <option value={3}>3 clients</option>
                   <option value={4}>4 clients</option>
                   <option value={8}>8 clients</option>
                   <option value={12}>12 clients</option>
