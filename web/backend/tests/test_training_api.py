@@ -174,6 +174,92 @@ def test_training_completes_with_injected_backend_and_writes_artifacts(tmp_path)
         assert preprocessing["prepared"]["mode"] == "clean"
 
 
+def test_centralized_training_pools_data_and_reports_metrics(tmp_path):
+    settings = _training_settings(tmp_path)
+    app = create_app(settings)
+    with TestClient(app) as client:
+        app.state.training.backend_factory = lambda: _FakeGRUBackend()
+        experiment = _dataset_and_experiment(client)
+
+        response = client.post(
+            f"/api/v1/experiments/{experiment['id']}/train",
+            json={
+                "mode": "centralized",
+                "rounds": 1,
+                "local_epochs": 1,
+                "batch_size": 512,
+                "learning_rate": 0.1,
+                "seed": 5,
+            },
+        )
+        assert response.status_code == 200, response.text
+        job = _wait_for_job(client, response.json()["id"])
+        assert job["status"] == "succeeded", job
+
+        detail = client.get(f"/api/v1/experiments/{experiment['id']}").json()
+        assert detail["status"] == "succeeded"
+        result = detail["result"]
+        assert result["training_mode"] == "centralized"
+        assert result["mode"] == "centralized_training"
+        assert result["encrypted"] is False
+        metrics = result["final_metrics"]
+        for key in ("accuracy", "precision", "recall", "f1"):
+            assert key in metrics
+
+        artifact = result["artifact"]
+        weights_path = settings.data_dir / artifact["weights_file"]
+        assert weights_path.is_file()
+        stored = read_weight_artifact(weights_path)
+        assert len(stored["weights"]) == parameter_count(48)
+        assert stored["metadata"]["training_mode"] == "centralized"
+
+        preprocessing_path = settings.data_dir / artifact["preprocessing_file"]
+        preprocessing = json.loads(preprocessing_path.read_text(encoding="utf-8"))
+        assert preprocessing["prepared"]["mode"] == "clean"
+
+
+def test_training_exposes_round_metrics_endpoint(tmp_path):
+    settings = _training_settings(tmp_path)
+    app = create_app(settings)
+    with TestClient(app) as client:
+        app.state.training.backend_factory = lambda: _FakeGRUBackend()
+        experiment = _dataset_and_experiment(client)
+
+        response = client.post(
+            f"/api/v1/experiments/{experiment['id']}/train",
+            json={
+                "mode": "clean",
+                "rounds": 2,
+                "local_epochs": 1,
+                "learning_rate": 0.1,
+                "seed": 5,
+            },
+        )
+        assert response.status_code == 200, response.text
+        job = _wait_for_job(client, response.json()["id"])
+        assert job["status"] == "succeeded", job
+
+        metrics_response = client.get(
+            f"/api/v1/experiments/{experiment['id']}/metrics"
+        )
+        assert metrics_response.status_code == 200, metrics_response.text
+        round_metrics = metrics_response.json()["round_metrics"]
+        assert len(round_metrics) == 2
+        for entry in round_metrics:
+            for key in (
+                "round_index",
+                "accuracy",
+                "precision",
+                "recall",
+                "f1_score",
+                "loss",
+                "training_time_seconds",
+                "aggregation_time_seconds",
+                "bytes_transmitted_per_client",
+            ):
+                assert key in entry
+
+
 def test_training_row_cap_fails_closed(tmp_path):
     settings = _training_settings(tmp_path).model_copy(
         update={"training_max_rows": 2}

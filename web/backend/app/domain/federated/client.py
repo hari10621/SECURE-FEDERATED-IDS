@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Sequence
 
-from ...errors import InputValidationError
+from ...errors import InputValidationError, IntegrityError
 from ..crypto.base import CentralizedCryptoBackend
 from .backends import TrainingBackend
 
@@ -77,6 +77,8 @@ class EncryptedClientUpdate:
     auth_token: str
     timestamp: float
     nonce: str
+    broadcast_hash: str = ""
+    plaintext_size_bytes: int = 0
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -86,7 +88,13 @@ class EncryptedClientUpdate:
             "round_index": self.round_index,
             "chunk_count": len(self.chunks),
             "auth_token_present": bool(self.auth_token),
+            "broadcast_hash": self.broadcast_hash,
         }
+
+
+def plaintext_update_size(weights: Sequence[float]) -> int:
+    """Serialized size of one plaintext weight update in bytes."""
+    return len(json.dumps([float(value) for value in weights]))
 
 
 def ciphertext_digest(chunks: Sequence[bytes]) -> str:
@@ -96,6 +104,52 @@ def ciphertext_digest(chunks: Sequence[bytes]) -> str:
         hasher.update(len(chunk).to_bytes(8, "big"))
         hasher.update(chunk)
     return hasher.hexdigest()
+
+
+def encrypted_model_hash(chunks: Sequence[bytes]) -> str:
+    """SHA-256 over the concatenated encrypted global-model bytes.
+
+    This is the hash the aggregation server broadcasts alongside the encrypted
+    global model. Clients recompute it before decryption; a mismatch is treated
+    as tampering (paper Algorithm 1, Phase 2, lines 9-10).
+    """
+    hasher = hashlib.sha256()
+    for chunk in chunks:
+        hasher.update(bytes(chunk))
+    return hasher.hexdigest()
+
+
+@dataclass(frozen=True)
+class BroadcastPackage:
+    """Encrypted global model plus the hash clients must verify."""
+
+    round_index: int
+    chunks: tuple[bytes, ...]
+    hash: str
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "round_index": self.round_index,
+            "chunk_count": len(self.chunks),
+            "hash": self.hash,
+        }
+
+
+def make_broadcast(round_index: int, chunks: Sequence[bytes]) -> BroadcastPackage:
+    frozen = tuple(bytes(chunk) for chunk in chunks)
+    return BroadcastPackage(
+        round_index=round_index,
+        chunks=frozen,
+        hash=encrypted_model_hash(frozen),
+    )
+
+
+def verify_broadcast(package: BroadcastPackage) -> str:
+    """Recompute the broadcast hash and fail closed on any mismatch."""
+    received_hash = encrypted_model_hash(package.chunks)
+    if received_hash != package.hash:
+        raise IntegrityError("Global model hash mismatch — possible tampering")
+    return received_hash
 
 
 def delta_weights(
@@ -173,8 +227,17 @@ class SimulatedClient:
         auth_token: str,
         timestamp: float,
         nonce: str,
+        broadcast: BroadcastPackage | None = None,
     ) -> EncryptedClientUpdate:
-        """Train locally, compute ΔW, and encrypt it with the public context."""
+        """Train locally, compute ΔW, and encrypt it with the public context.
+
+        If ``broadcast`` is supplied it is the encrypted global model received
+        from the server. The client verifies its SHA-256 hash before using the
+        model and fails closed on any mismatch.
+        """
+        broadcast_hash = ""
+        if broadcast is not None:
+            broadcast_hash = verify_broadcast(broadcast)
         update = self.train(
             global_weights,
             backend,
@@ -194,4 +257,6 @@ class SimulatedClient:
             auth_token=auth_token,
             timestamp=float(timestamp),
             nonce=nonce,
+            broadcast_hash=broadcast_hash,
+            plaintext_size_bytes=plaintext_update_size(update.weights),
         )

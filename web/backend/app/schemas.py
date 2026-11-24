@@ -158,14 +158,20 @@ class SimulationRequest(BaseModel):
 class TrainingRequest(BaseModel):
     """GRU federated training settings.
 
+    Paper-specified defaults: 15 rounds, 512 batch size, 5 local epochs.
     Defaults are deliberately a one-round, one-epoch smoke run. Set the legacy
-    15 rounds / 5 local epochs explicitly for a research-sized run.
+    15 rounds / 512 batch size / 5 local epochs explicitly for a research-sized run.
+
+    Mode options:
+    - ``legacy``: legacy simulated clients (default, for backward compatibility)
+    - ``clean``: clean mode — split first, scaler fit on train only
+    - ``centralized``: centralized baseline — pool all data, train as one model
     """
 
-    mode: Literal["legacy", "clean"] = "legacy"
+    mode: Literal["legacy", "clean", "centralized"] = "legacy"
     rounds: int = Field(default=1, ge=1, le=100)
     local_epochs: int = Field(default=1, ge=1, le=50)
-    batch_size: int = Field(default=32, ge=1, le=4096)
+    batch_size: int = Field(default=512, ge=1, le=4096)
     learning_rate: float = Field(default=0.0001, gt=0.0, le=10.0)
     weighting: Literal["sample", "legacy"] = "legacy"
     seed: int = Field(default=42, ge=0, le=2**31 - 1)
@@ -175,6 +181,38 @@ class TrainingRequest(BaseModel):
     threshold: int | None = Field(default=None, ge=1, le=12)
     require_encryption: bool = False
     max_rows: int | None = Field(default=None, ge=1)
+
+
+class PaperSuiteRequest(BaseModel):
+    """Automated paper comparison suite settings.
+
+    Defaults match the paper: 15 rounds, 5 local epochs, 512 batch size.
+    """
+
+    dataset_id: str = Field(min_length=1)
+    rounds: int = Field(default=15, ge=1, le=100)
+    local_epochs: int = Field(default=5, ge=1, le=50)
+    batch_size: int = Field(default=512, ge=1, le=4096)
+    learning_rate: float = Field(default=0.0001, gt=0.0, le=10.0)
+    seed: int = Field(default=42, ge=0, le=2**31 - 1)
+    test_size: float = Field(default=0.3, gt=0.0, lt=1.0)
+    max_rows: int | None = Field(default=None, ge=1)
+    client_counts: list[int] = Field(default_factory=lambda: [4, 8, 12])
+    include_centralized: bool = True
+    include_he: bool = True
+
+    @field_validator("client_counts")
+    @classmethod
+    def _validate_client_counts(cls, value: list[int]) -> list[int]:
+        allowed = {2, 3, 4, 8, 12}
+        if not value:
+            raise ValueError("client_counts must not be empty")
+        invalid = [count for count in value if count not in allowed]
+        if invalid:
+            raise ValueError(
+                f"client_counts must be drawn from {sorted(allowed)}; got {invalid}"
+            )
+        return value
 
 
 class ExperimentStatusResponse(BaseModel):

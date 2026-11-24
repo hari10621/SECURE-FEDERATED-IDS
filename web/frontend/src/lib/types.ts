@@ -189,6 +189,27 @@ export interface TrainingRequest extends SimulationRequest {
 
 export type MetricValue = number | null
 
+export interface RoundMetric {
+  round_index: number
+  accuracy: MetricValue
+  precision: MetricValue
+  recall: MetricValue
+  f1_score: MetricValue
+  loss: MetricValue
+  training_time_seconds?: number
+  encryption_time_seconds?: number
+  aggregation_time_seconds?: number
+  decryption_time_seconds?: number
+  bytes_transmitted_per_client?: number
+  plaintext_update_size_bytes?: number
+  encrypted_update_size_bytes?: number
+  expansion_ratio?: MetricValue
+}
+
+export interface ExperimentMetricsResponse {
+  round_metrics: RoundMetric[]
+}
+
 export interface FederatedRound {
   round: number
   updates: Array<Record<string, unknown>>

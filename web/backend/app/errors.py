@@ -61,6 +61,13 @@ class UnavailableError(AppError):
     code = "unavailable"
 
 
+class IntegrityError(AppError):
+    """Raised when a broadcast model fails its integrity check."""
+
+    status_code = 409
+    code = "integrity_error"
+
+
 class ResearchExecutionDisabled(UnavailableError):
     code = "research_execution_disabled"
 

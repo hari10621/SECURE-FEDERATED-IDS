@@ -74,6 +74,11 @@ def test_crypto_backends_fail_closed():
     assert DisabledCryptoBackend().status().mode == "unavailable"
 
 
+def test_partition_interleaves_iid_round_robin():
+    shards = partition_training_indices(list(range(8)), num_clients=4, seed=0)
+    assert shards == [[0, 4], [1, 5], [2, 6], [3, 7]]
+
+
 def test_partition_matches_legacy_floor_and_drops_remainder():
     labels = [0] * 10
     shards = partition_training_indices(labels, num_clients=4, seed=5)
@@ -210,6 +215,10 @@ def test_harness_is_deterministic_and_labels_plaintext():
     assert len(first["rounds"]) == 3
     assert first["legacy_differences"]
     assert first["aggregate_digest"] == second["aggregate_digest"]
+    for entry in first["round_metrics"]:
+        assert entry["plaintext_update_size_bytes"] > 0
+        assert entry["encrypted_update_size_bytes"] == 0.0
+        assert entry["expansion_ratio"] is None
 
 
 def test_harness_seed_changes_round_updates():

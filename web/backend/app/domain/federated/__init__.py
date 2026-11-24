@@ -2,11 +2,16 @@
 
 from .backends import ReferenceLinearBackend, TrainingBackend
 from .client import (
+    BroadcastPackage,
     ClientUpdate,
     EncryptedClientUpdate,
     SimulatedClient,
     ciphertext_digest,
     delta_weights,
+    encrypted_model_hash,
+    make_broadcast,
+    plaintext_update_size,
+    verify_broadcast,
     weight_digest,
 )
 from .round import (
@@ -29,6 +34,7 @@ from .server import (
 __all__ = [
     "AggregationResult",
     "AuthToken",
+    "BroadcastPackage",
     "ClientUpdate",
     "EncryptedAggregationResult",
     "EncryptedClientUpdate",
@@ -45,6 +51,10 @@ __all__ = [
     "client_id_for",
     "delta_weights",
     "derive_client_seed",
+    "encrypted_model_hash",
+    "make_broadcast",
     "partition_training_indices",
+    "plaintext_update_size",
+    "verify_broadcast",
     "weight_digest",
 ]

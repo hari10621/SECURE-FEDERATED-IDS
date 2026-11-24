@@ -8,10 +8,16 @@ from ..db import Database
 from ..enums import ACTIVE_EXPERIMENT_STATUSES, DatasetType, ExperimentStatus, JobStatus
 from ..errors import ConflictError, InputValidationError, JobCancelled, NotFoundError, UnavailableError
 from ..models import Experiment, Job
-from ..schemas import ExperimentCreate, SimulationRequest, TrainingRequest
+from ..schemas import (
+    ExperimentCreate,
+    PaperSuiteRequest,
+    SimulationRequest,
+    TrainingRequest,
+)
 from ..config import Settings
 from .dataset_service import DatasetService
 from .encryption_service import EncryptionService
+from .experiment_runner import run_paper_experiments
 from .experiment_service import ExperimentService
 from .job_manager import JobContext, JobManager
 from .job_service import JobService
@@ -44,6 +50,7 @@ class FederatedService:
         self.simulation = simulation
         self.training = training
         self.job_manager = job_manager
+        self.paper_suite_backend_factory: Any | None = None
 
     def create_experiment(self, payload: ExperimentCreate) -> Experiment:
         dataset = self.datasets.get(payload.dataset_id)
@@ -171,6 +178,43 @@ class FederatedService:
         )
         self._attach_job(experiment.id, job.id)
         return job
+
+    def start_paper_suite(self, payload: PaperSuiteRequest) -> Job:
+        dataset = self.datasets.get(payload.dataset_id)
+        if dataset.validation_status != "valid":
+            raise UnavailableError("Dataset has not passed validation.")
+        return self.job_manager.submit(
+            "paper_suite_run",
+            dedupe_key=f"dataset:{dataset.id}:paper-suite",
+            payload={"dataset_id": dataset.id, "request": payload.model_dump()},
+        )
+
+    def execute_paper_suite_job(
+        self, context: JobContext, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        request = PaperSuiteRequest.model_validate(payload.get("request") or {})
+        dataset = self.datasets.get(request.dataset_id)
+        if dataset.validation_status != "valid":
+            raise UnavailableError("Dataset has not passed validation.")
+        path = self.datasets.path_for(dataset)
+        return run_paper_experiments(
+            path,
+            dataset.dataset_type,
+            settings=self.settings,
+            rounds=request.rounds,
+            local_epochs=request.local_epochs,
+            batch_size=request.batch_size,
+            learning_rate=request.learning_rate,
+            seed=request.seed,
+            test_size=request.test_size,
+            max_rows=request.max_rows,
+            client_counts=request.client_counts,
+            include_centralized=request.include_centralized,
+            include_he=request.include_he,
+            backend_factory=self.paper_suite_backend_factory,
+            progress=lambda fraction, message: context.progress(fraction, message),
+            cancel_check=lambda: context.cancel_requested,
+        )
 
     def execute_training_job(
         self, context: JobContext, payload: dict[str, Any]

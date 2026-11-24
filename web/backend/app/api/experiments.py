@@ -12,6 +12,7 @@ from ..schemas import (
     ExperimentResponse,
     ExperimentStatusResponse,
     JobResponse,
+    PaperSuiteRequest,
     SimulationRequest,
     TrainingRequest,
 )
@@ -46,6 +47,14 @@ def list_experiments(
         items=[ExperimentResponse.model_validate(row) for row in rows],
         total=total,
     )
+
+
+@router.post("/run-paper-suite", response_model=JobResponse, status_code=202)
+def run_paper_suite(
+    payload: PaperSuiteRequest,
+    federated: FederatedService = Depends(get_federated),
+) -> JobResponse:
+    return JobResponse.model_validate(federated.start_paper_suite(payload))
 
 
 @router.get("/{experiment_id}", response_model=ExperimentResponse)

@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api import clients, datasets, experiments, health, ips, jobs, predictions
+from .api import clients, datasets, experiments, health, ips, jobs, predictions, metrics
 from .config import Settings
 from .db import Database
 from .errors import AppError
@@ -134,6 +134,10 @@ def create_app(
             handlers["training_run"] = (
                 lambda context, payload: federated.execute_training_job(context, payload)
             )
+        if "paper_suite_run" not in handlers:
+            handlers["paper_suite_run"] = (
+                lambda context, payload: federated.execute_paper_suite_job(context, payload)
+            )
 
         application.state.paths = paths
         application.state.db = db
@@ -163,6 +167,7 @@ def create_app(
     app.include_router(ips.router, prefix=settings.api_prefix)
     app.include_router(datasets.router, prefix=settings.api_prefix)
     app.include_router(experiments.router, prefix=settings.api_prefix)
+    app.include_router(metrics.router, prefix=settings.api_prefix)
     app.include_router(clients.router, prefix=settings.api_prefix)
     app.include_router(predictions.router, prefix=settings.api_prefix)
     app.include_router(jobs.router, prefix=settings.api_prefix)

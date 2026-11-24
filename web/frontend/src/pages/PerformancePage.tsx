@@ -4,7 +4,13 @@ import { Alert } from '../components/ui/Alert'
 import { Button, buttonStyles } from '../components/ui/Button'
 import { Card, CardBody, CardHeader } from '../components/ui/Card'
 import { DataTable, type Column } from '../components/ui/DataTable'
-import { MetricBarChart, RoundLineChart } from '../components/ui/Charts'
+import {
+  CommunicationOverheadChart,
+  ComputationTimeChart,
+  MetricBarChart,
+  RoundComparisonChart,
+  RoundLineChart,
+} from '../components/ui/Charts'
 import { MetricCard } from '../components/ui/MetricCard'
 import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/States'
@@ -12,7 +18,7 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { useApi } from '../hooks/useApi'
 import { api } from '../lib/api'
 import { formatDate, formatMetric, formatNumber, humanize } from '../lib/format'
-import type { ExperimentResponse, FederatedResult } from '../lib/types'
+import type { ExperimentResponse, FederatedResult, RoundMetric } from '../lib/types'
 
 function completedResult(experiment: ExperimentResponse): FederatedResult | null {
   if (experiment.status !== 'succeeded' || !experiment.result) return null
@@ -32,6 +38,24 @@ export function PerformancePage() {
   const roundMetric = rounds.some((round) => typeof round.metrics?.accuracy === 'number')
     ? 'accuracy'
     : 'f1'
+
+  const standardExperiment = completed.find((experiment) => !completedResult(experiment)?.encrypted)
+  const heExperiment = completed.find((experiment) => Boolean(completedResult(experiment)?.encrypted))
+  const standardId = standardExperiment?.id ?? null
+  const heId = heExperiment?.id ?? null
+
+  const metrics = useApi(async () => {
+    const empty: RoundMetric[] = []
+    const [standard, he] = await Promise.all([
+      standardId ? api.experimentMetrics(standardId) : Promise.resolve({ round_metrics: empty }),
+      heId ? api.experimentMetrics(heId) : Promise.resolve({ round_metrics: empty }),
+    ])
+    return { standard: standard.round_metrics, he: he.round_metrics }
+  }, [standardId, heId])
+
+  const standardRounds = metrics.data?.standard ?? []
+  const heRounds = metrics.data?.he ?? []
+  const timedRounds = heRounds.length > 0 ? heRounds : standardRounds
 
   const columns: Column<ExperimentResponse>[] = [
     {
@@ -132,6 +156,7 @@ export function PerformancePage() {
             onClick={() => {
               experiments.reload()
               datasets.reload()
+              metrics.reload()
             }}
             icon={<RefreshCw className="size-3.5" aria-hidden="true" />}
           >
@@ -208,6 +233,87 @@ export function PerformancePage() {
                 ) : (
                   <p className="py-10 text-center text-sm text-muted">
                     This result contains final metrics only.
+                  </p>
+                )}
+              </CardBody>
+            </Card>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader
+                title="Accuracy: standard FL vs HE-FL"
+                description={
+                  metrics.loading
+                    ? 'Loading per-round metrics…'
+                    : metrics.error ??
+                      'Per-round accuracy from the latest plaintext and encrypted experiments.'
+                }
+              />
+              <CardBody>
+                {standardRounds.length > 0 || heRounds.length > 0 ? (
+                  <RoundComparisonChart
+                    standard={standardRounds}
+                    he={heRounds}
+                    metric="accuracy"
+                    label="Standard FL (plaintext) vs HE-FL (CKKS)"
+                  />
+                ) : (
+                  <p className="py-10 text-center text-sm text-muted">
+                    No per-round accuracy records were returned by the metrics endpoint.
+                  </p>
+                )}
+              </CardBody>
+            </Card>
+            <Card>
+              <CardHeader
+                title="Loss convergence"
+                description="Per-round log-loss for the latest plaintext and encrypted experiments."
+              />
+              <CardBody>
+                {standardRounds.length > 0 || heRounds.length > 0 ? (
+                  <RoundComparisonChart
+                    standard={standardRounds}
+                    he={heRounds}
+                    metric="loss"
+                    label="Lower is better"
+                  />
+                ) : (
+                  <p className="py-10 text-center text-sm text-muted">
+                    No per-round loss records were returned by the metrics endpoint.
+                  </p>
+                )}
+              </CardBody>
+            </Card>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <Card>
+              <CardHeader
+                title="Computation time breakdown"
+                description="Per-round training, encryption, aggregation, and decryption time."
+              />
+              <CardBody>
+                {timedRounds.length > 0 ? (
+                  <ComputationTimeChart rounds={timedRounds} />
+                ) : (
+                  <p className="py-10 text-center text-sm text-muted">
+                    Timing fields are not present in this result. Enable timed training runs.
+                  </p>
+                )}
+              </CardBody>
+            </Card>
+            <Card>
+              <CardHeader
+                title="Communication overhead"
+                description="Average plaintext versus CKKS ciphertext MB per client per round."
+              />
+              <CardBody>
+                {standardRounds.length > 0 || heRounds.length > 0 ? (
+                  <CommunicationOverheadChart standard={standardRounds} he={heRounds} />
+                ) : (
+                  <p className="py-10 text-center text-sm text-muted">
+                    No communication-size records were returned by the metrics endpoint.
                   </p>
                 )}
               </CardBody>

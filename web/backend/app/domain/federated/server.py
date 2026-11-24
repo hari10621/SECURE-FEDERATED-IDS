@@ -86,6 +86,11 @@ class EncryptedAggregationResult:
     byzantine_flagged: tuple[str, ...]
     validation_errors: tuple[tuple[str, str], ...] = ()
 
+    @property
+    def total_ciphertext_bytes(self) -> int:
+        """Serialized size of the aggregated ciphertext broadcast."""
+        return sum(len(chunk) for chunk in self.chunks)
+
     def as_dict(self) -> dict[str, object]:
         return {
             "participants": list(self.participants),

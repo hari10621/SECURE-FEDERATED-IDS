@@ -44,7 +44,7 @@ class Settings(BaseModel):
     max_upload_bytes: int = Field(default=512 * 1024 * 1024, gt=0)
     max_csv_rows: int = Field(default=2_000_000, gt=0)
     max_csv_columns: int = Field(default=256, gt=1)
-    simulation_max_rows: int = Field(default=5000, gt=0)
+    simulation_max_rows: int = Field(default=50000, gt=0)
     training_max_rows: int = Field(default=5000, gt=0)
 
     research_repo_dir: Path = Field(default=DEFAULT_RESEARCH_REPO)

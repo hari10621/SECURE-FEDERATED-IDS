@@ -9,27 +9,38 @@ IDs, and records the difference explicitly.
 from __future__ import annotations
 
 import hashlib
-import random
+import json
+import logging
+import time
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Sequence
 
-from ...errors import InputValidationError, UnavailableError
+from ...errors import InputValidationError, IntegrityError, UnavailableError
 from ..crypto.base import CentralizedCryptoBackend, CryptoBackend, chunk_count
 from ..crypto.plaintext import PlaintextSimulationBackend
 from ..dataset import PreprocessedDataset
 from ..metrics import compute_metrics
 from .backends import TrainingBackend
 from .client import (
+    BroadcastPackage,
     ClientUpdate,
     SimulatedClient,
     ciphertext_digest,
+    make_broadcast,
+    plaintext_update_size,
+    verify_broadcast,
     weight_digest,
 )
 from .server import FLServer, WEIGHTING_MODES
 
+logger = logging.getLogger(__name__)
+
 ProgressCallback = Callable[[float, str], None]
 AbortCheck = Callable[[], bool]
 WeightSink = Callable[[list[float]], None]
+
+PAPER_EXPANSION_FACTOR = 16.57
+EXPANSION_WARNING_TOLERANCE = 0.5
 
 LEGACY_DIFFERENCES = (
     "Plaintext simulation only: no CKKS encryption, DKG, or threshold "
@@ -54,7 +65,7 @@ class FederatedConfig:
     num_clients: int = 4
     rounds: int = 15
     local_epochs: int = 5
-    batch_size: int = 32
+    batch_size: int = 512
     learning_rate: float = 0.0001
     threshold: int | None = None
     byzantine_threshold: int = 2
@@ -99,11 +110,12 @@ def partition_training_indices(
     num_clients: int,
     seed: int,
 ) -> list[list[int]]:
-    """Legacy floor partition on a seeded shuffle.
+    """IID round-robin partition used by the paper.
 
-    ``create_clients`` in the research scripts shuffles ``zip(data, labels)``,
-    takes ``len // num_clients`` rows per client, and drops the remainder. The
-    same shape is kept here, but the shuffle is seeded for reproducibility.
+    Every client receives the same number of rows (``len(labels) // num_clients``)
+    by interleaving indices, and the remainder is dropped. ``seed`` selects a
+    deterministic rotation phase so different seeds still produce different
+    (but equally sized) shards.
     """
     if num_clients <= 0:
         raise InputValidationError("num_clients must be positive")
@@ -113,13 +125,12 @@ def partition_training_indices(
         raise InputValidationError(
             f"not enough rows ({total}) for {num_clients} clients"
         )
-    indices = list(range(total))
-    random.Random(seed).shuffle(indices)
     used = size * num_clients
-    return [
-        sorted(indices[offset : offset + size])
-        for offset in range(0, used, size)
-    ]
+    offset = seed % num_clients
+    shards: list[list[int]] = [[] for _ in range(num_clients)]
+    for index in range(used):
+        shards[(index + offset) % num_clients].append(index)
+    return shards
 
 
 def client_id_for(position: int) -> str:
@@ -162,6 +173,7 @@ class FederatedHarness:
         progress: ProgressCallback | None = None,
         final_weights_sink: WeightSink | None = None,
         mode: str = "plaintext_simulation",
+        include_timing: bool = False,
     ) -> None:
         self.backend = backend
         self.config = config
@@ -170,6 +182,7 @@ class FederatedHarness:
         self.progress = progress
         self.final_weights_sink = final_weights_sink
         self.mode = mode
+        self.include_timing = include_timing
 
     def _check_abort(self) -> None:
         if self.abort_check is not None and self.abort_check():
@@ -230,6 +243,7 @@ class FederatedHarness:
 
         for round_index in range(self.config.rounds):
             self._check_abort()
+            round_start = time.time()
             updates: list[ClientUpdate] = []
             self._report(
                 round_index / self.config.rounds,
@@ -247,7 +261,10 @@ class FederatedHarness:
                 )
                 updates.append(update)
 
+            aggregation_start = time.time()
             aggregation = server.aggregate(updates)
+            aggregation_time = time.time() - aggregation_start
+
             record: dict[str, Any] = {
                 "round": round_index,
                 "updates": [update.as_dict() for update in updates],
@@ -267,7 +284,33 @@ class FederatedHarness:
             final_metrics, evaluation_note = _evaluate(
                 self.backend, global_weights, dataset.test_rows, dataset.test_labels
             )
-            record["metrics"] = final_metrics
+
+            update_bytes = [
+                plaintext_update_size(update.weights) for update in updates
+            ]
+            plaintext_avg_bytes = sum(update_bytes) / len(update_bytes)
+            round_metrics: dict[str, Any] = {
+                "round_index": round_index,
+                "accuracy": final_metrics.get("accuracy"),
+                "precision": final_metrics.get("precision"),
+                "recall": final_metrics.get("recall"),
+                "f1_score": final_metrics.get("f1"),
+                "loss": final_metrics.get("log_loss"),
+                "bytes_transmitted_per_client": round(plaintext_avg_bytes, 2),
+                "plaintext_update_size_bytes": round(plaintext_avg_bytes, 2),
+                "encrypted_update_size_bytes": 0.0,
+                "expansion_ratio": None,
+            }
+            if self.include_timing:
+                round_metrics.update(
+                    {
+                        "training_time_seconds": round(time.time() - round_start, 4),
+                        "encryption_time_seconds": 0.0,
+                        "aggregation_time_seconds": round(aggregation_time, 4),
+                        "decryption_time_seconds": 0.0,
+                    }
+                )
+            record["metrics"] = round_metrics
             if evaluation_note:
                 record["metrics_note"] = evaluation_note
             records.append(record)
@@ -316,6 +359,7 @@ class FederatedHarness:
             "config": self.config.as_dict(),
             "dataset": dataset.summary(),
             "rounds": records,
+            "round_metrics": [record["metrics"] for record in records if record["metrics"]],
             "final_metrics": final_metrics,
             "final_metrics_note": evaluation_note,
             "aggregate_digest": last_digest,
@@ -343,6 +387,7 @@ class EncryptedFederatedHarness:
         progress: ProgressCallback | None = None,
         final_weights_sink: WeightSink | None = None,
         context_hash: str | None = None,
+        include_timing: bool = False,
     ) -> None:
         self.backend = backend
         self.config = config
@@ -353,6 +398,8 @@ class EncryptedFederatedHarness:
         self.final_weights_sink = final_weights_sink
         self.context_hash = context_hash
         self.mode = "encrypted_federated"
+        self.include_timing = include_timing
+        self._expansion_warning_logged = False
 
     def _check_abort(self) -> None:
         if self.abort_check is not None and self.abort_check():
@@ -416,19 +463,23 @@ class EncryptedFederatedHarness:
         global_weights = self.backend.initial_weights(feature_count)
         records: list[dict[str, Any]] = []
         last_digest = ""
+        last_broadcast: BroadcastPackage | None = None
         final_metrics: dict[str, float | None] | None = None
         evaluation_note: str | None = None
 
         for round_index in range(self.config.rounds):
             self._check_abort()
+            round_start = time.time()
             self._report(
                 round_index / self.config.rounds,
                 f"round {round_index + 1}/{self.config.rounds}: encrypting local deltas",
             )
             updates = []
+            encryption_seconds = 0.0
             for client in clients:
                 self._check_abort()
                 token = server.issue_auth_token(client.client_id)
+                encrypt_start = time.time()
                 updates.append(
                     client.train_encrypted(
                         global_weights,
@@ -441,16 +492,22 @@ class EncryptedFederatedHarness:
                         auth_token=token.token,
                         timestamp=token.timestamp,
                         nonce=token.nonce,
+                        broadcast=last_broadcast,
                     )
                 )
+                encryption_seconds += time.time() - encrypt_start
 
+            aggregation_start = time.time()
             aggregation = server.aggregate_encrypted(updates, self.crypto)
+            aggregation_time = time.time() - aggregation_start
+
             record: dict[str, Any] = {
                 "round": round_index,
                 "updates": [update.as_dict() for update in updates],
                 "scaling_factors": [float(value) for value in aggregation.scaling_factors],
                 "aggregate_digest": aggregation.aggregate_digest,
                 "chunk_count": len(aggregation.chunks),
+                "aggregate_ciphertext_bytes": aggregation.total_ciphertext_bytes,
                 "aborted": aggregation.aborted,
                 "reason": aggregation.reason,
                 "byzantine_flagged": list(aggregation.byzantine_flagged),
@@ -467,11 +524,28 @@ class EncryptedFederatedHarness:
                 records.append(record)
                 continue
 
+            # Phase 2, lines 9-10: verify the SHA-256 hash of the encrypted
+            # global model before the client-side keyring decrypts it.
+            broadcast = make_broadcast(round_index, aggregation.chunks)
+            try:
+                verify_broadcast(broadcast)
+            except IntegrityError as exc:
+                record["aborted"] = True
+                record["reason"] = str(exc)
+                record["broadcast_hash"] = broadcast.hash
+                record["broadcast_hash_verified"] = False
+                records.append(record)
+                continue
+            record["broadcast_hash"] = broadcast.hash
+            record["broadcast_hash_verified"] = True
+
             self._report(
                 (round_index + 0.5) / self.config.rounds,
                 f"round {round_index + 1}/{self.config.rounds}: client-side decryption",
             )
+            decrypt_start = time.time()
             delta = self.keyring.decrypt_aggregate(list(aggregation.chunks), expected)
+            decryption_time = time.time() - decrypt_start
             if len(delta) != expected:
                 raise UnavailableError(
                     f"decrypted delta has {len(delta)} values; expected {expected}"
@@ -481,10 +555,60 @@ class EncryptedFederatedHarness:
                 for global_value, delta_value in zip(global_weights, delta)
             ]
             last_digest = aggregation.aggregate_digest
+            last_broadcast = broadcast
             final_metrics, evaluation_note = _evaluate(
                 self.backend, global_weights, dataset.test_rows, dataset.test_labels
             )
-            record["metrics"] = final_metrics
+
+            total_bytes = sum(len(chunk) for update in updates for chunk in update.chunks)
+            encrypted_avg_bytes = total_bytes / len(updates)
+            plaintext_avg_bytes = (
+                sum(update.plaintext_size_bytes for update in updates) / len(updates)
+            )
+            expansion_ratio = (
+                encrypted_avg_bytes / plaintext_avg_bytes
+                if plaintext_avg_bytes
+                else None
+            )
+            if (
+                expansion_ratio is not None
+                and abs(expansion_ratio - PAPER_EXPANSION_FACTOR)
+                / PAPER_EXPANSION_FACTOR
+                > EXPANSION_WARNING_TOLERANCE
+                and not self._expansion_warning_logged
+            ):
+                logger.warning(
+                    "communication expansion ratio %.4fx differs from the paper's "
+                    "%.2fx claim (round %d)",
+                    expansion_ratio,
+                    PAPER_EXPANSION_FACTOR,
+                    round_index,
+                )
+                self._expansion_warning_logged = True
+            round_metrics: dict[str, Any] = {
+                "round_index": round_index,
+                "accuracy": final_metrics.get("accuracy"),
+                "precision": final_metrics.get("precision"),
+                "recall": final_metrics.get("recall"),
+                "f1_score": final_metrics.get("f1"),
+                "loss": final_metrics.get("log_loss"),
+                "bytes_transmitted_per_client": round(encrypted_avg_bytes, 2),
+                "plaintext_update_size_bytes": round(plaintext_avg_bytes, 2),
+                "encrypted_update_size_bytes": round(encrypted_avg_bytes, 2),
+                "expansion_ratio": (
+                    round(expansion_ratio, 4) if expansion_ratio is not None else None
+                ),
+            }
+            if self.include_timing:
+                round_metrics.update(
+                    {
+                        "training_time_seconds": round(time.time() - round_start, 4),
+                        "encryption_time_seconds": round(encryption_seconds, 4),
+                        "aggregation_time_seconds": round(aggregation_time, 4),
+                        "decryption_time_seconds": round(decryption_time, 4),
+                    }
+                )
+            record["metrics"] = round_metrics
             if evaluation_note:
                 record["metrics_note"] = evaluation_note
             records.append(record)
@@ -530,6 +654,13 @@ class EncryptedFederatedHarness:
                 "batch_size": batch_size,
                 "chunks_per_update": chunks_per_update,
             },
+            "integrity": {
+                "algorithm": "sha256",
+                "broadcast_hash_verified": True,
+                "last_broadcast_hash": (
+                    last_broadcast.hash if last_broadcast is not None else None
+                ),
+            },
             "parity": "unverified",
             "parity_note": (
                 "No parity claim is made. CKKS encryption, aggregation, and "
@@ -540,6 +671,7 @@ class EncryptedFederatedHarness:
             "config": self.config.as_dict(),
             "dataset": dataset.summary(),
             "rounds": records,
+            "round_metrics": [record["metrics"] for record in records if record["metrics"]],
             "final_metrics": final_metrics,
             "final_metrics_note": evaluation_note,
             "aggregate_digest": last_digest,

@@ -11,6 +11,7 @@ import type {
   EncryptionStatusResponse,
   ErrorEnvelope,
   ExperimentListResponse,
+  ExperimentMetricsResponse,
   ExperimentResponse,
   ExperimentStatusResponse,
   HealthResponse,
@@ -189,6 +190,8 @@ export const api = {
   getExperiment: (id: string) => apiRequest<ExperimentResponse>(`/api/v1/experiments/${id}`),
   experimentStatus: (id: string) =>
     apiRequest<ExperimentStatusResponse>(`/api/v1/experiments/${id}/status`),
+  experimentMetrics: (id: string) =>
+    apiRequest<ExperimentMetricsResponse>(`/api/v1/experiments/${id}/metrics`),
   createExperiment: (payload: {
     name: string
     dataset_id: string
