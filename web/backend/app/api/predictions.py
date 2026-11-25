@@ -24,7 +24,5 @@ def prediction_status(service: ModelService = Depends(get_models)) -> Prediction
 def predict(
     payload: PredictionRequest,
     service: ModelService = Depends(get_models),
-) -> None:
-    # ModelService.predict always fails closed until a verified model and
-    # matching preprocessing manifest are admitted.
-    service.predict(payload.features)
+) -> dict:
+    return service.predict(payload.features)

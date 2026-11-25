@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+from uuid import uuid4
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -31,6 +32,8 @@ from ..domain.federated.round import (
     FederatedConfig,
     FederatedHarness,
 )
+from ..domain.federated.independent_client import ProcessClient
+from ..domain.federated.client import SimulatedClient
 from ..domain.model import (
     artifact_filename,
     keras_runtime_status,
@@ -120,8 +123,7 @@ class TrainingService:
                 return False, reason
         return (
             True,
-            "Plaintext GRU training is available. No encryption or independent "
-            "client isolation is provided, and results are not a parity claim.",
+            "Plaintext federated GRU training is available on this host.",
         )
 
     def execute(
@@ -159,6 +161,7 @@ class TrainingService:
             seed=request.seed,
         )
 
+        process_clients = False
         if centralized:
             # Centralized baseline: pool ALL data together and train as one model
             X_train = prepared.train_rows
@@ -216,7 +219,7 @@ class TrainingService:
                 local_epochs=request.local_epochs,
                 batch_size=request.batch_size,
                 learning_rate=request.learning_rate,
-                threshold=None,
+                threshold=request.threshold,
                 byzantine_threshold=request.byzantine_threshold,
                 weighting=request.weighting,
                 byzantine_check=request.byzantine_check,
@@ -224,12 +227,24 @@ class TrainingService:
                 require_encryption=request.require_encryption,
             )
             backend = self.backend_factory()
-            captured_weights: list[float] = []
 
             def progress(fraction: float, message: str) -> None:
                 context.progress(0.20 + 0.72 * max(0.0, min(1.0, fraction)), message)
 
-            if request.require_encryption:
+            captured_weights: list[float] = []
+            if not request.require_encryption:
+                process_clients = type(backend) is KerasGRUBackend
+                harness = FederatedHarness(
+                    backend,
+                    config,
+                    client_factory=ProcessClient if process_clients else SimulatedClient,
+                    mode="plaintext_federated_training",
+                    include_timing=True,
+                    abort_check=lambda: context.cancel_requested,
+                    progress=progress,
+                    final_weights_sink=lambda weights: captured_weights.extend(weights),
+                )
+            else:
                 if not self.encryption.is_available():
                     raise UnavailableError(
                         "encrypted training is unavailable; the TenSEAL CKKS backend "
@@ -239,7 +254,7 @@ class TrainingService:
                     parties=experiment.client_count,
                     threshold=max(1, experiment.client_count - experiment.client_count // 2),
                 )
-                harness: FederatedHarness | EncryptedFederatedHarness = EncryptedFederatedHarness(
+                harness = EncryptedFederatedHarness(
                     backend,
                     config,
                     self.encryption.server_backend(material),
@@ -250,22 +265,14 @@ class TrainingService:
                     context_hash=material.context_hash,
                     include_timing=True,
                 )
-            else:
-                harness = FederatedHarness(
-                    backend,
-                    config,
-                    abort_check=lambda: context.cancel_requested,
-                    progress=progress,
-                    final_weights_sink=lambda weights: captured_weights.extend(weights),
-                    mode="plaintext_federated_training",
-                    include_timing=True,
-                )
             context.progress(0.18, "initialising Keras GRU round harness")
             try:
                 result = harness.run(prepared)
             except FederatedAborted as exc:
                 raise JobCancelled(str(exc)) from exc
 
+            if not request.require_encryption and all(record["aborted"] for record in result["rounds"]):
+                raise UnavailableError("Every round aborted before aggregation.")
             if not captured_weights:
                 raise UnavailableError("training completed without final model weights")
             final_weights = captured_weights
@@ -277,8 +284,8 @@ class TrainingService:
         result["dataset_id"] = dataset.id
         result["request"] = request.model_dump()
         result["workload"] = {
-            "implementation": "in-process simulated clients",
-            "independent_clients": False,
+            "implementation": "local client processes" if process_clients else ("centralized" if centralized else "in-process clients"),
+            "independent_clients": process_clients,
             "encryption": bool(result.get("encrypted", False)),
             "ckks_backend": (result.get("crypto") or {}).get("backend"),
             "row_cap": row_cap,
@@ -290,8 +297,7 @@ class TrainingService:
             ]
         else:
             result["legacy_differences"] = list(result.get("legacy_differences", [])) + [
-                "Training uses in-process simulated clients, not independently "
-                "authenticated client runtimes.",
+                "The coordinator partitions the uploaded CSV on this host.",
                 "Cancellation is checked between clients, not inside a Keras fit call.",
             ]
 
@@ -305,6 +311,20 @@ class TrainingService:
             result,
             final_weights,
         )
+        if (
+            self.settings.enable_predictions
+            and type(backend) is KerasGRUBackend
+            and not request.require_encryption
+        ):
+            manifest = {
+                "model_path": str(Path(artifact["weights_file"]).relative_to("models")),
+                "sha256": artifact["weights_sha256"],
+                "preprocessing": str(Path(artifact["preprocessing_file"]).relative_to("models")),
+                "preprocessing_sha256": artifact["preprocessing_sha256"],
+            }
+            staging = self.paths.models_dir / f"{uuid4().hex}.tmp"
+            _write_json(staging, manifest)
+            staging.replace(self.paths.models_dir / "manifest.json")
         result["artifact"] = artifact
         context.progress(
             1.0,
@@ -325,7 +345,7 @@ class TrainingService:
         weights: list[float],
     ) -> dict[str, Any]:
         directory = self.paths.ensure_within(
-            self.paths.models_dir / experiment.id,
+            self.paths.models_dir / experiment.id / uuid4().hex,
             self.paths.models_dir,
             label="training directory",
         )

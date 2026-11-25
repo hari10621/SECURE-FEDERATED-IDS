@@ -47,7 +47,7 @@ class KerasGRUBackend(TrainingBackend):
                 f"({type(exc).__name__})."
             ) from exc
 
-    def _load(self, weights: Sequence[float], input_features: int, learning_rate: float):
+    def load_model(self, weights: Sequence[float], input_features: int, learning_rate: float):
         import numpy as np
 
         model = self._build(input_features, learning_rate)
@@ -102,7 +102,7 @@ class KerasGRUBackend(TrainingBackend):
 
         seed = rng.randrange(0, 2**31 - 1)
         tf.keras.utils.set_random_seed(seed)
-        model = self._load(weights, width, learning_rate)
+        model = self.load_model(weights, width, learning_rate)
         features = np.asarray(rows, dtype="float32").reshape(-1, 1, width)
         targets = np.asarray(labels, dtype="float32")
         dataset = (
@@ -126,7 +126,7 @@ class KerasGRUBackend(TrainingBackend):
                 raise InputValidationError("inconsistent feature widths")
         if len(weights) != parameter_count(width):
             raise InputValidationError("weight count does not match feature width")
-        model = self._load(weights, width, self.learning_rate)
+        model = self.load_model(weights, width, self.learning_rate)
         features = np.asarray(rows, dtype="float32").reshape(-1, 1, width)
         probabilities = model.predict(features, verbose=0)
         return np.asarray(probabilities, dtype="float64").reshape(-1).tolist()

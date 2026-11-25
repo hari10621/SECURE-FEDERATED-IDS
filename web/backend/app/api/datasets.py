@@ -6,6 +6,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 
+from sqlalchemy.exc import IntegrityError
+
+from ..errors import ConflictError
 from ..enums import DatasetType
 from ..schemas import (
     DatasetListResponse,
@@ -69,6 +72,22 @@ def get_dataset(
     service: DatasetService = Depends(get_datasets),
 ) -> DatasetResponse:
     return DatasetResponse.model_validate(service.get(dataset_id))
+
+
+@router.delete("/{dataset_id}", response_model=DatasetResponse)
+def delete_dataset(
+    dataset_id: str,
+    service: DatasetService = Depends(get_datasets),
+) -> DatasetResponse:
+    dataset = service.get(dataset_id)
+    path = service.path_for(dataset)
+    try:
+        with service.db.session() as session:
+            session.delete(dataset)
+    except IntegrityError as exc:
+        raise ConflictError("An experiment still references this dataset.") from exc
+    path.unlink(missing_ok=True)
+    return DatasetResponse.model_validate(dataset)
 
 
 @router.post("/{dataset_id}/validate", response_model=DatasetValidationReport)

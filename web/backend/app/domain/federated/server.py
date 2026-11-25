@@ -234,20 +234,12 @@ class FLServer:
             raise InputValidationError(f"update from {update.client_id} has no samples")
         if any(not math.isfinite(value) for value in update.weights):
             raise InputValidationError(f"update from {update.client_id} contains non-finite values")
-        # Replay protection: check client-round freshness
+        if update.digest != weight_digest(update.weights, round_index=update.round_index):
+            raise InputValidationError(f"weight digest mismatch for {update.client_id}")
         nonce_key = (update.client_id, update.round_index)
         if nonce_key in self._round_nonces:
-            last_seen = self._round_nonces[nonce_key]
-            if time.time() - last_seen > self.max_clock_drift_seconds:
-                # Stale round from a previous execution window; allow re-use
-                self._round_nonces[nonce_key] = time.time()
-            else:
-                # Same round seen within the window — potential replay
-                raise InputValidationError(
-                    f"replay detected: update round_index={update.round_index} for client {update.client_id} already processed"
-                )
-        else:
-            self._round_nonces[nonce_key] = time.time()
+            raise InputValidationError(f"replay detected for {update.client_id} in round {update.round_index}")
+        self._round_nonces[nonce_key] = time.time()
 
     def _scaling_factors(
         self, updates: Sequence[ClientUpdate | EncryptedClientUpdate]

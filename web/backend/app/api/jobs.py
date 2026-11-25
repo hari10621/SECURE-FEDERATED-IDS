@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
+from ..errors import UnavailableError
 from ..schemas import JobListResponse, JobResponse
 from ..services.job_manager import JobManager
 from ..services.job_service import JobService
@@ -31,9 +32,33 @@ def list_jobs(
     )
 
 
+@router.post("/client-tutorial", response_model=JobResponse, status_code=202)
+def start_tutorial(request: Request, manager: JobManager = Depends(get_job_manager)):
+    if not request.app.state.settings.enable_training:
+        raise UnavailableError("Enable training with start_backend.ps1 to run the tutorial.")
+    return manager.submit("client_tutorial", dedupe_key="client_tutorial", payload={})
+
+
+@router.get("/client-tutorial/latest", response_model=JobResponse | None)
+def latest_tutorial(jobs: JobService = Depends(get_jobs)):
+    return jobs.latest_of_type("client_tutorial")
+
+
 @router.get("/{job_id}", response_model=JobResponse)
 def get_job(job_id: str, jobs: JobService = Depends(get_jobs)) -> JobResponse:
     return JobResponse.model_validate(jobs.get(job_id))
+
+
+@router.delete("/{job_id}", response_model=JobResponse)
+def delete_job(
+    job_id: str,
+    jobs: JobService = Depends(get_jobs),
+) -> JobResponse:
+    job = jobs.get(job_id)
+    with jobs.db.session() as session:
+        session.delete(job)
+        session.flush()
+    return JobResponse.model_validate(job)
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponse)

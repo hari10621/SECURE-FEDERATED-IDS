@@ -20,7 +20,7 @@ crypto = [
     "tenseal==0.3.18",
 ]
 training = [
-    "tensorflow-cpu==2.13.1",
+    "tensorflow==2.21.0",
 ]
 
 [tool.pytest.ini_options]

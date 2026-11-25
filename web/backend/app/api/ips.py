@@ -21,13 +21,15 @@ from ..schemas import (
     SDNStatusResponse,
 )
 from ..services.sdn_service import SDNService
-from .deps import get_sdn
+from ..errors import UnavailableError
+from ..services.model_service import ModelService
+from .deps import get_models, get_sdn, require_auth
 
 
 router = APIRouter(
     prefix="/ips",
     tags=["ips"],
-    dependencies=[],
+    dependencies=[Depends(require_auth)],
 )
 
 
@@ -39,112 +41,25 @@ router = APIRouter(
 def ips_detect(
     payload: PredictionRequest,
     sdn_service: SDNService = Depends(get_sdn),
+    models: ModelService = Depends(get_models),
 ) -> PredictionStatusResponse:
-    """Run the GRU IDS model on the provided 48-feature vector.
+    """Score submitted flow statistics with the admitted model and fitted scaler."""
+    import time
 
-    Returns a ``PredictionStatusResponse`` containing the prediction probability
-    and binary label.  If an alert is generated (attack predicted), the response
-    includes it in the ``reason`` field for downstream consumption.
-    """
-    adapter = sdn_service._adapter
     try:
-        # Use the adapter's detect pipeline; it reads flow stats internally.
-        # Since we're receiving raw features via the payload, we'll map them
-        # through the model directly using predict logic adapted from the adapter.
-        import numpy as np
-        from ..domain.model import keras_available, build_gru_model
-        from ..domain.dataset import apply_scaler, ScalerStats
-
-        FEATURE_NAME_COUNT = 48
-        MODEL_INPUT_SHAPE = (1, 1, FEATURE_NAME_COUNT)
-
-        if adapter.model is None:
-            if keras_available():
-                from ..services.sdn_adapter import create_sdn_adapter
-                adapter = create_sdn_adapter(mode="mock")
-                adapter.model = build_gru_model(input_features=FEATURE_NAME_COUNT)
-            else:
-                return PredictionStatusResponse(
-                    available=False,
-                    reason="IDS model not initialized and TensorFlow unavailable.",
-                )
-
-        features = payload.features
-        if len(features) != FEATURE_NAME_COUNT:
-            return PredictionStatusResponse(
-                available=False,
-                reason=f"Expected {FEATURE_NAME_COUNT} features, got {len(features)}.",
-            )
-
-        if adapter.scaler is not None:
-            features_scaled = apply_scaler([features], adapter.scaler)[0]
-        else:
-            features_scaled = features
-
-        X = np.array(features_scaled, dtype=np.float32).reshape(MODEL_INPUT_SHAPE)
-
-        if not keras_available():
-            return PredictionStatusResponse(
-                available=False,
-                reason="TensorFlow/Keras is not available for inference.",
-            )
-
-        pred = adapter.model.predict(X, verbose=0)[0][0]
-        label = 1 if pred >= 0.5 else 0
-
-        alert = None
-        if label == 1:
-            alert = {
-                "type": "intrusion_detected",
-                "flow_id": "api-ips-detect",
-                "timestamp": __import__("time").time(),
-                "prediction_probability": float(pred),
-                "features_used": features,
-            }
-
-        # Record the detection result in adapter history
-        result_dict = {
-            "flow_id": "api-ips-detect",
-            "timestamp": __import__("time").time(),
-            "prediction": float(pred),
-            "label": int(label),
-            "features": features,
-            "switch_dp_id": getattr(getattr(adapter, "_switch_info", None), "dp_id", "unknown"),
-            "table_id": 0,
-            "alert": alert,
-        }
-        try:
-            from ..services.sdn_adapter import DetectionResult
-            detection_result = DetectionResult(
-                flow_id=result_dict["flow_id"],
-                timestamp=result_dict["timestamp"],
-                prediction=result_dict["prediction"],
-                label=result_dict["label"],
-                features=result_dict["features"],
-                switch_dp_id=result_dict["switch_dp_id"],
-                table_id=result_dict["table_id"],
-                alert=result_dict.get("alert"),
-            )
-            adapter.record_result(detection_result)
-        except Exception:
-            pass
-
-        reason_parts = [f"prediction={float(pred):.4f}"]
-        if alert is not None:
-            reason_parts.append(f"alert={alert['type']}")
-
-        return PredictionStatusResponse(
-            available=True,
-            reason=" ".join(reason_parts),
-            model="keras_gru",
-            preprocessing="securefed-preprocessing-v1",
-        )
-
-    except Exception as exc:
-        return PredictionStatusResponse(
-            available=False,
-            reason=f"Inference failed: {exc}",
-        )
+        prediction = models.predict(payload.features)
+    except UnavailableError as exc:
+        return PredictionStatusResponse(available=False, reason=str(exc))
+    probability = prediction["prediction"]
+    label = prediction["label"]
+    alert = {"type": "intrusion_detected", "prediction_probability": probability} if label else None
+    sdn_service._adapter.record_result(DetectionResult(
+        flow_id="api-ips-detect", timestamp=time.time(), prediction=probability,
+        label=label, features=payload.features, switch_dp_id="unknown", table_id=0, alert=alert,
+    ))
+    reason = f"prediction={probability:.4f}" + (" alert=intrusion_detected" if label else "")
+    return PredictionStatusResponse(available=True, reason=reason, model="keras_gru",
+                                    preprocessing="securefed-preprocessing-v1")
 
 
 @router.post(

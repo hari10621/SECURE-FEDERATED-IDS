@@ -268,7 +268,7 @@ def run_paper_experiments(
     max_rows: int | None = None,
     client_counts: Sequence[int] = DEFAULT_CLIENT_COUNTS,
     include_centralized: bool = True,
-    include_he: bool = True,
+    include_he: bool = False,
     backend_factory: Callable[[], Any] | None = None,
     encryption: EncryptionService | None = None,
     progress: ProgressCallback | None = None,

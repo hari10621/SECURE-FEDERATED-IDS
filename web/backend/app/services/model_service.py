@@ -1,20 +1,13 @@
-"""ML model discovery and prediction boundary.
-
-No trained model or matching preprocessing pipeline is present. Prediction is
-therefore unavailable. This module deliberately does not load arbitrary Keras
-or pickle artifacts; model admission requires an explicit manifest and checksum
-in a later phase.
-"""
-
-from __future__ import annotations
-
+"""Verified plaintext GRU inference with the scaler fitted during training."""
 import hashlib
 import json
-from pathlib import Path
-from typing import Any
+import math
 
 from ..config import Settings
-from ..errors import UnavailableError
+from ..domain.dataset import ScalerStats, apply_scaler
+from ..domain.federated.keras_backend import KerasGRUBackend
+from ..domain.model import keras_runtime_status, parameter_count
+from ..errors import ForbiddenError, InputValidationError, UnavailableError
 from ..storage.paths import StoragePaths
 
 
@@ -23,71 +16,51 @@ class ModelService:
         self.settings = settings
         self.paths = paths
 
-    def status(self) -> dict[str, Any]:
-        if not self.settings.enable_predictions:
-            return {
-                "available": False,
-                "reason": "Prediction is disabled until a verified model and preprocessing pipeline exist.",
-                "model": None,
-                "preprocessing": None,
-            }
-        manifest_path = self.paths.models_dir / "manifest.json"
-        if not manifest_path.is_file():
-            return {
-                "available": False,
-                "reason": "No admitted model manifest is present.",
-                "model": None,
-                "preprocessing": None,
-            }
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {
-                "available": False,
-                "reason": "Model manifest is unreadable.",
-                "model": None,
-                "preprocessing": None,
-            }
-        model_name = manifest.get("model_path")
-        expected_hash = manifest.get("sha256")
-        preprocessing = manifest.get("preprocessing")
-        if not isinstance(model_name, str) or not isinstance(expected_hash, str) or not preprocessing:
-            return {
-                "available": False,
-                "reason": "Model manifest is incomplete.",
-                "model": None,
-                "preprocessing": None,
-            }
-        try:
-            model_path = self.paths.model_path(model_name)
-        except Exception:
-            return {
-                "available": False,
-                "reason": "Model path is outside the approved model directory.",
-                "model": None,
-                "preprocessing": None,
-            }
-        if not model_path.is_file():
-            return {
-                "available": False,
-                "reason": "Model artifact is missing.",
-                "model": model_name,
-                "preprocessing": None,
-            }
-        digest = hashlib.sha256(model_path.read_bytes()).hexdigest()
-        if digest != expected_hash:
-            return {
-                "available": False,
-                "reason": "Model artifact checksum mismatch.",
-                "model": model_name,
-                "preprocessing": None,
-            }
-        return {
-            "available": False,
-            "reason": "Model loading and inference are not implemented in Phase 3.",
-            "model": model_name,
-            "preprocessing": preprocessing,
-        }
+    def _artifact(self, path: str, checksum: str) -> dict:
+        data = self.paths.model_path(path).read_bytes()
+        if hashlib.sha256(data).hexdigest() != checksum:
+            raise UnavailableError("Model or preprocessing checksum mismatch.")
+        return json.loads(data)
 
-    def predict(self, _features: list[float]) -> dict[str, Any]:
-        raise UnavailableError("model unavailable; no prediction was produced")
+    def _load(self):
+        if not self.settings.enable_predictions:
+            raise UnavailableError("Prediction is disabled.")
+        try:
+            manifest = json.loads((self.paths.models_dir / "manifest.json").read_bytes())
+            model = self._artifact(manifest["model_path"], manifest["sha256"])
+            preprocessing = self._artifact(manifest["preprocessing"], manifest["preprocessing_sha256"])
+            names = preprocessing["feature_names"]
+            width = model["input_features"]
+            stats = ScalerStats(**preprocessing["prepared"]["scaler"])
+            if (model["model"] != "keras_gru" or width != 48 or len(names) != width
+                    or model["metadata"]["experiment_id"] != preprocessing["experiment_id"]
+                    or model["metadata"]["dataset_id"] != preprocessing["dataset_id"]
+                    or len(model["weights"]) != parameter_count(width)
+                    or len(stats.means) != width or len(stats.scales) != width
+                    or not all(math.isfinite(x) for x in stats.means + model["weights"])
+                    or not all(math.isfinite(x) and x > 0 for x in stats.scales)):
+                raise UnavailableError("Model and preprocessing are incompatible.")
+        except FileNotFoundError as exc:
+            raise UnavailableError("Train a plaintext GRU to create the model and preprocessing artifacts.") from exc
+        except (OSError, KeyError, TypeError, ValueError, ForbiddenError) as exc:
+            raise UnavailableError("The prediction manifest or its artifacts are invalid.") from exc
+        available, reason = keras_runtime_status()
+        if not available:
+            raise UnavailableError(reason)
+        return manifest, model["weights"], stats
+
+    def status(self):
+        try:
+            manifest, _, _ = self._load()
+        except UnavailableError as exc:
+            return dict(available=False, reason=str(exc), model=None, preprocessing=None)
+        return dict(available=True, reason="Verified GRU and scaler are ready.",
+                    model=manifest["model_path"], preprocessing=manifest["preprocessing"])
+
+    def predict(self, features: list[float]) -> dict:
+        _, weights, stats = self._load()
+        if len(features) != len(stats.means) or not all(math.isfinite(x) for x in features):
+            raise InputValidationError("Enter 48 finite flow features in training CSV column order.")
+        scaled = apply_scaler([features], stats)
+        probability = KerasGRUBackend().predict(weights, scaled)[0]
+        return {"available": True, "prediction": probability, "label": int(probability > 0.5)}

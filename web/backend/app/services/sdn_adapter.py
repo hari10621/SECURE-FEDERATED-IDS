@@ -53,7 +53,6 @@ from ..domain.model import (
     unflatten_gru_weights,
     model_description,
     keras_available,
-    build_gru_model,
 )
 
 # ---------------------------------------------------------------------------
@@ -366,35 +365,25 @@ class SDNAdapter:
         self.model = None
         self.scaler = None
 
-        if model_path is not None and model_path.is_file():
-            try:
-                payload = self._read_model_artifact(model_path)
-                self.model = payload  # type: ignore[assignment]
-                if "scaler_stats" in payload:
-                    ss = payload["scaler_stats"]
-                    self.scaler = ScalerStats(
-                        means=ss.get("means", []),
-                        scales=ss.get("scales", []),
-                    )
-                return
-            except Exception as exc:  # pragma: no cover
-                raise UnavailableError(f"Failed to load model artifact: {exc}")
+        if model_path is None:
+            return
+        from ..domain.model import read_weight_artifact
+        from ..domain.federated.keras_backend import KerasGRUBackend
 
-        # Build a fresh model matching the research architecture,
-        # but fail gracefully if TensorFlow/Keras is unavailable.
-        if keras_available():
-            self.model = build_gru_model(input_features=FEATURE_NAME_COUNT)
-        # If model remains None, predict() will raise UnavailableError.
-
-        # Try to fit a scaler from provided data or use defaults
-        if scaler_path is not None and scaler_path.is_file():
-            try:
-                data = scaler_path.read_text(encoding="utf-8").strip()
-                ss = json.loads(data)
-                self.scaler = ScalerStats(means=ss.get("means", []), scales=ss.get("scales", []))
-            except Exception as exc:  # pragma: no cover
-                raise UnavailableError(f"Failed to load scaler: {exc}")
-        # If no scaler provided, the model expects unit-normalized inputs.
+        try:
+            artifact = read_weight_artifact(model_path)
+            if artifact["model"] != "keras_gru" or artifact["input_features"] != FEATURE_NAME_COUNT:
+                raise ValueError("expected a trained 48-feature GRU")
+            sidecar = scaler_path or model_path.with_name("preprocessing.json")
+            data = json.loads(sidecar.read_text(encoding="utf-8"))
+            stats = data["prepared"]["scaler"] if "prepared" in data else data
+            self.scaler = ScalerStats(**stats)
+            if len(self.scaler.means) != FEATURE_NAME_COUNT or len(self.scaler.scales) != FEATURE_NAME_COUNT:
+                raise ValueError("expected 48 scaler coefficients")
+            backend = KerasGRUBackend()
+            self.model = backend.load_model(artifact["weights"], FEATURE_NAME_COUNT, backend.learning_rate)
+        except (OSError, KeyError, ValueError, TypeError) as exc:
+            raise UnavailableError(f"Failed to load trained model and scaler: {exc}") from exc
 
     # -----------------------------------------------------------------
     # Feature-mapping initialization

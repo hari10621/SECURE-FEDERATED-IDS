@@ -172,6 +172,9 @@ class FederatedHarness:
         abort_check: AbortCheck | None = None,
         progress: ProgressCallback | None = None,
         final_weights_sink: WeightSink | None = None,
+        client_factory: type[SimulatedClient] = SimulatedClient,
+        client_ids: Sequence[str] | None = None,
+        after_aggregate: Callable[[int, Sequence[float]], None] | None = None,
         mode: str = "plaintext_simulation",
         include_timing: bool = False,
     ) -> None:
@@ -181,6 +184,13 @@ class FederatedHarness:
         self.abort_check = abort_check
         self.progress = progress
         self.final_weights_sink = final_weights_sink
+        self.client_ids = list(client_ids) if client_ids is not None else [
+            client_id_for(position + 1) for position in range(config.num_clients)
+        ]
+        if len(self.client_ids) != config.num_clients or len(set(self.client_ids)) != config.num_clients:
+            raise InputValidationError("Supply one unique ID per client shard.")
+        self.after_aggregate = after_aggregate
+        self.client_factory = client_factory
         self.mode = mode
         self.include_timing = include_timing
 
@@ -213,13 +223,13 @@ class FederatedHarness:
             seed=self.config.seed,
         )
         clients = [
-            SimulatedClient(
-                client_id=client_id_for(position),
+            self.client_factory(
+                client_id=client_id,
                 rows=[dataset.train_rows[index] for index in shard],
                 labels=[dataset.train_labels[index] for index in shard],
-                seed=derive_client_seed(self.config.seed, client_id_for(position)),
+                seed=derive_client_seed(self.config.seed, client_id),
             )
-            for position, shard in enumerate(shards, start=1)
+            for client_id, shard in zip(self.client_ids, shards)
         ]
 
         expected = self.backend.parameter_count(feature_count)
@@ -280,6 +290,8 @@ class FederatedHarness:
                 continue
 
             global_weights = list(aggregation.weights)
+            if self.after_aggregate is not None:
+                self.after_aggregate(round_index, global_weights)
             last_digest = aggregation.aggregate_digest
             final_metrics, evaluation_note = _evaluate(
                 self.backend, global_weights, dataset.test_rows, dataset.test_labels

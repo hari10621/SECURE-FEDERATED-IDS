@@ -51,8 +51,10 @@ export function TrainingPage() {
   const [name, setName] = useState('')
   const [datasetId, setDatasetId] = useState('')
   const [clientCount, setClientCount] = useState(4)
+  const [paperSchedule, setPaperSchedule] = useState(false)
   const [creating, setCreating] = useState(false)
   const [action, setAction] = useState<'simulate' | 'train' | 'cancel' | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -148,7 +150,7 @@ export function TrainingPage() {
     setActionError(null)
     setNotice(null)
     try {
-      const started = await api.trainExperiment(selectedId)
+      const started = await api.trainExperiment(selectedId, { rounds: paperSchedule ? 15 : 1, local_epochs: paperSchedule ? 5 : 1 })
       setJob(started)
       setNotice('Federated training job queued. Progress updates automatically.')
       status.reload()
@@ -173,6 +175,28 @@ export function TrainingPage() {
       setActionError(describeError(error))
     } finally {
       setAction(null)
+    }
+  }
+
+  async function handleDeleteExperiment(id: string) {
+    setDeleting(id)
+    setNotice(null)
+    if (
+      !window.confirm(
+        `Are you sure you want to delete experiment "${id}"?\nThis will remove the experiment record and associated job data.`
+      )
+    ) {
+      setDeleting(null)
+      return
+    }
+    try {
+      await api.deleteExperiment(id)
+      setNotice(`Experiment ${id} has been deleted.`)
+      experiments.reload()
+      setDeleting(null)
+    } catch (error) {
+      setActionError(describeError(error))
+      setDeleting(null)
     }
   }
 
@@ -217,13 +241,23 @@ export function TrainingPage() {
       headerClassName: 'text-right',
       className: 'text-right',
       render: (row) => (
-        <Button
-          variant={row.id === selectedId ? 'secondary' : 'ghost'}
-          size="sm"
-          onClick={() => setSearchParams({ experiment: row.id })}
-        >
-          {row.id === selectedId ? 'Selected' : 'Select'}
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            variant={row.id === selectedId ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => setSearchParams({ experiment: row.id })}
+          >
+            {row.id === selectedId ? 'Selected' : 'Select'}
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            loading={deleting === row.id}
+            onClick={() => handleDeleteExperiment(row.id)}
+          >
+            Delete
+          </Button>
+        </div>
       ),
     },
   ]
@@ -436,14 +470,13 @@ export function TrainingPage() {
               />
             </div>
 
-            <Alert tone="warning" title="Execution modes are separate">
-              Encrypted training uses TenSEAL CKKS with a per-run Trusted Authority keypair and
-              stays disabled until the backend reports it available. Plaintext simulation uses a
-              reference linear harness double. GRU training runs the research architecture through
-              the installed TensorFlow runtime with conservative smoke defaults of one round and
-              one local epoch; request a full legacy configuration explicitly. Plaintext runs are
-              never labelled encrypted, and no mode is a parity claim.
-            </Alert>
+            <Field label="GRU training schedule" htmlFor="gru-schedule">
+              <Select id="gru-schedule" value={paperSchedule ? 'paper' : 'short'}
+                onChange={(event) => setPaperSchedule(event.target.value === 'paper')}>
+                <option value="short">Quick check (1 round, 1 local epoch)</option>
+                <option value="paper">Paper schedule (15 rounds, 5 local epochs)</option>
+              </Select>
+            </Field>
 
             <div className="flex flex-wrap items-start gap-2">
               <Button
@@ -592,7 +625,7 @@ function ExperimentResult({ result }: { result: FederatedResult }) {
     : []
   const roundMetric = rounds.some((round) => typeof round.metrics?.accuracy === 'number')
     ? 'accuracy'
-    : 'f1'
+    : 'f1_score'
   const roundRows = rounds.filter((round) => round.metrics && Object.keys(round.metrics).length > 0)
 
   return (
@@ -683,7 +716,7 @@ function ExperimentResult({ result }: { result: FederatedResult }) {
                       {formatMetric('accuracy', round.metrics?.accuracy)}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
-                      {formatMetric('f1', round.metrics?.f1)}
+                      {formatMetric('f1', round.metrics?.f1_score ?? round.metrics?.f1)}
                     </td>
                     <td className="px-3 py-2 text-xs text-muted">
                       {round.reason ?? round.metrics_note ?? '—'}

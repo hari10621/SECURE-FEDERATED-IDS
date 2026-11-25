@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import random
@@ -308,22 +309,25 @@ def test_encrypted_training_request_fails_closed(tmp_path):
     reason="set SECUREFED_RUN_TF_TESTS=1 in a TensorFlow runtime",
 )
 def test_real_keras_gru_training_completes(tmp_path):
-    settings = _training_settings(tmp_path)
+    settings = _training_settings(tmp_path).model_copy(update={"enable_predictions": True, "max_upload_bytes": 2_000_000, "training_max_rows": 1000})
     with TestClient(create_app(settings)) as client:
-        experiment = _dataset_and_experiment(client)
+        dataset = Path(__file__).resolve().parents[3] / "datasets" / "insdn_compact_1k.csv"
+        uploaded = upload_dataset(client, content=dataset.read_bytes())
+        uploaded.raise_for_status()
+        experiment = create_experiment(client, uploaded.json()["id"]).json()
         response = client.post(
             f"/api/v1/experiments/{experiment['id']}/train",
             json={
                 "mode": "clean",
-                "rounds": 1,
+                "rounds": 2,
                 "local_epochs": 1,
-                "batch_size": 8,
+                "batch_size": 64,
                 "learning_rate": 0.0001,
                 "seed": 7,
             },
         )
         assert response.status_code == 200, response.text
-        job = _wait_for_job(client, response.json()["id"], timeout=120.0)
+        job = _wait_for_job(client, response.json()["id"], timeout=360.0)
         assert job["status"] == "succeeded", job
 
         detail = client.get(f"/api/v1/experiments/{experiment['id']}").json()
@@ -332,10 +336,27 @@ def test_real_keras_gru_training_completes(tmp_path):
         assert result["model"]["name"] == "keras_gru"
         assert result["model"]["research_model"] is True
         assert result["encrypted"] is False
-        assert len(result["rounds"]) == 1
+        assert len(result["rounds"]) == 2
+        assert all(not record["aborted"] and len(record["updates"]) == 4 for record in result["rounds"])
+        assert result["rounds"][0]["aggregate_digest"] != result["rounds"][1]["aggregate_digest"]
 
         artifact = result["artifact"]
         weights_path = settings.data_dir / artifact["weights_file"]
         stored = read_weight_artifact(weights_path)
         assert stored["parameter_count"] == parameter_count(48)
         assert len(stored["weights"]) == parameter_count(48)
+        with dataset.open(newline="") as stream:
+            row = next(csv.DictReader(stream))
+        features = [float(value) for key, value in row.items() if key != "Label"]
+        prediction = client.post("/api/v1/predictions", json={"features": features})
+        prediction.raise_for_status()
+        probability = prediction.json()["prediction"]
+        assert 0 <= probability <= 1
+        assert prediction.json()["label"] == int(probability > 0.5)
+        ips = client.post("/api/v1/ips/detect", json={"features": features})
+        ips.raise_for_status()
+        assert ips.json()["available"] is True
+        assert f"prediction={probability:.4f}" in ips.json()["reason"]
+        scaler_path = settings.data_dir / artifact["preprocessing_file"]
+        scaler_path.write_bytes(scaler_path.read_bytes() + b" ")
+        assert client.post("/api/v1/predictions", json={"features": features}).status_code == 503

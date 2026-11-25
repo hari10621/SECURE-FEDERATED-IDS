@@ -33,7 +33,7 @@ export function DatasetsPage() {
   const [report, setReport] = useState<DatasetValidationReport | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [busy, setBusy] = useState<'validate' | 'upload' | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
   const [revalidating, setRevalidating] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -103,6 +103,28 @@ export function DatasetsPage() {
     }
   }
 
+  async function handleDeleteDataset(id: string) {
+    setBusy(id)
+    setNotice(null)
+    if (
+      !window.confirm(
+        `Are you sure you want to delete dataset "${id}"?\nThis will remove the dataset record and the associated physical CSV file from storage.`
+      )
+    ) {
+      setBusy(null)
+      return
+    }
+    try {
+      await api.deleteDataset(id)
+      setNotice(`Dataset ${id} has been deleted.`)
+      datasets.reload()
+    } catch (error) {
+      setFormError(describeError(error))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const columns: Column<DatasetResponse>[] = [
     {
       key: 'name',
@@ -166,14 +188,23 @@ export function DatasetsPage() {
       headerClassName: 'text-right',
       className: 'text-right',
       render: (row) => (
-        <Button
-          variant="secondary"
-          size="sm"
-          loading={revalidating === row.id}
-          onClick={() => handleRevalidate(row.id)}
-        >
-          Revalidate
-        </Button>
+        <div className="flex gap-1">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={revalidating === row.id}
+            onClick={() => handleRevalidate(row.id)}
+          >
+            Revalidate
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => handleDeleteDataset(row.id)}
+          >
+            Delete
+          </Button>
+        </div>
       ),
     },
   ]

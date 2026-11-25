@@ -168,12 +168,12 @@ class TrainingRequest(BaseModel):
     - ``centralized``: centralized baseline — pool all data, train as one model
     """
 
-    mode: Literal["legacy", "clean", "centralized"] = "legacy"
+    mode: Literal["legacy", "clean", "centralized"] = "clean"
     rounds: int = Field(default=1, ge=1, le=100)
     local_epochs: int = Field(default=1, ge=1, le=50)
     batch_size: int = Field(default=512, ge=1, le=4096)
     learning_rate: float = Field(default=0.0001, gt=0.0, le=10.0)
-    weighting: Literal["sample", "legacy"] = "legacy"
+    weighting: Literal["sample", "legacy"] = "sample"
     seed: int = Field(default=42, ge=0, le=2**31 - 1)
     test_size: float = Field(default=0.3, gt=0.0, lt=1.0)
     byzantine_check: bool = False
@@ -199,7 +199,7 @@ class PaperSuiteRequest(BaseModel):
     max_rows: int | None = Field(default=None, ge=1)
     client_counts: list[int] = Field(default_factory=lambda: [4, 8, 12])
     include_centralized: bool = True
-    include_he: bool = True
+    include_he: bool = False
 
     @field_validator("client_counts")
     @classmethod

@@ -1,6 +1,7 @@
 import { loadApiConfig } from './config'
 import type {
   ClientListResponse,
+  ClientTutorialJob,
   ClientResponse,
   ClientStatus,
   ClientStatusResponse,
@@ -150,6 +151,8 @@ export interface UploadDatasetInput {
 }
 
 export const api = {
+  latestTutorial: () => apiRequest<ClientTutorialJob | null>('/api/v1/jobs/client-tutorial/latest'),
+  startTutorial: () => apiRequest<ClientTutorialJob>('/api/v1/jobs/client-tutorial', { method: 'POST' }),
   health: () => apiRequest<HealthResponse>('/api/v1/health'),
   version: () => apiRequest<VersionResponse>('/api/v1/version'),
   encryptionStatus: () => apiRequest<EncryptionStatusResponse>('/api/v1/encryption/status'),
@@ -226,6 +229,11 @@ export const api = {
   cancelJob: (id: string) =>
     apiRequest<JobResponse>(`/api/v1/jobs/${id}/cancel`, { method: 'POST' }),
 
+  deleteClient: (id: string) => apiRequest<ClientResponse>(`/api/v1/clients/${id}`, { method: 'DELETE' }),
+  deleteDataset: (id: string) => apiRequest<DatasetResponse>(`/api/v1/datasets/${id}`, { method: 'DELETE' }),
+  deleteExperiment: (id: string) => apiRequest<ExperimentResponse>(`/api/v1/experiments/${id}`, { method: 'DELETE' }),
+  enableClient: (id: string) => apiRequest<ClientResponse>(`/api/v1/clients/${id}/enable`, { method: 'POST' }),
+  disableClient: (id: string) => apiRequest<ClientResponse>(`/api/v1/clients/${id}/disable`, { method: 'POST' }),
   listClients: (params: { limit?: number; offset?: number } = {}) =>
     apiRequest<ClientListResponse>(`/api/v1/clients${query(params)}`),
   getClient: (id: string) => apiRequest<ClientResponse>(`/api/v1/clients/${id}`),
@@ -237,5 +245,5 @@ export const api = {
     apiRequest<ClientStatusResponse>(`/api/v1/clients/${id}/status`),
 
   predict: (features: number[]) =>
-    apiRequest<void>('/api/v1/predictions', { method: 'POST', body: { features } }),
+    apiRequest<{ prediction: number; label: number }>('/api/v1/predictions', { method: 'POST', body: { features } }),
 }

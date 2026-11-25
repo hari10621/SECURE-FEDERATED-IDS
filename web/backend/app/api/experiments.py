@@ -114,6 +114,18 @@ def train_experiment(
     return JobResponse.model_validate(federated.start_training(experiment_id, request))
 
 
+@router.delete("/{experiment_id}", response_model=ExperimentResponse)
+def delete_experiment(
+    experiment_id: str,
+    experiment_service: ExperimentService = Depends(get_experiments),
+) -> ExperimentResponse:
+    experiment = experiment_service.get(experiment_id)
+    with experiment_service.db.session() as session:
+        session.delete(experiment)
+        session.flush()
+    return ExperimentResponse.model_validate(experiment)
+
+
 @router.post("/{experiment_id}/cancel", response_model=JobResponse)
 def cancel_experiment(
     experiment_id: str,

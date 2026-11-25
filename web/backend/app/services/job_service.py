@@ -68,6 +68,11 @@ class JobService:
                 statement = statement.where(Job.experiment_id == experiment_id)
             return list(session.scalars(statement))
 
+    def latest_of_type(self, job_type: str) -> Job | None:
+        with self.db.session() as session:
+            return session.scalar(select(Job).where(Job.job_type == job_type)
+                                  .order_by(Job.created_at.desc()).limit(1))
+
     def count(self) -> int:
         with self.db.session() as session:
             return session.scalar(select(func.count()).select_from(Job)) or 0

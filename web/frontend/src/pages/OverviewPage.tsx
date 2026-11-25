@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Users,
 } from 'lucide-react'
+import { ClientTutorial } from '../components/ClientTutorial'
 import { Link } from 'react-router-dom'
 import { Alert } from '../components/ui/Alert'
 import { Button, buttonStyles } from '../components/ui/Button'
@@ -124,6 +125,8 @@ export function OverviewPage() {
         }
       />
 
+      <ClientTutorial />
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="API status"
@@ -148,8 +151,8 @@ export function OverviewPage() {
         />
         <MetricCard
           label="Clients"
-          value="Config only"
-          hint="No independent client runtime is started."
+          value="Local workers"
+          hint="Each tutorial client trains its shard in a local process."
           icon={<Users className="size-4" />}
           tone="warning"
         />
@@ -243,12 +246,12 @@ export function OverviewPage() {
                 <div className="flex items-center justify-between gap-3">
                   <span className="flex items-center gap-2 text-sm text-ink">
                     <Users className="size-4 text-faint" aria-hidden="true" />
-                    Independent clients
+                    Client execution
                   </span>
-                  <StatusBadge tone="warning" label="Not implemented" />
+                  <StatusBadge tone="info" label="Local processes" />
                 </div>
                 <p className="mt-1 text-xs leading-5 text-muted">
-                  Client records are configuration only. No independent runtime or session is started.
+                  The coordinator starts workers for each training round. Their updates are combined on this machine.
                 </p>
               </div>
             </CardBody>

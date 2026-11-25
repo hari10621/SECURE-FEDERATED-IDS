@@ -21,6 +21,7 @@ from .config import Settings
 from .db import Database
 from .errors import AppError
 from .logging_config import configure_logging
+from .services.client_tutorial import run_client_tutorial
 from .services.client_service import ClientService
 from .services.dataset_service import DatasetService
 from .services.encryption_service import EncryptionService
@@ -138,6 +139,8 @@ def create_app(
             handlers["paper_suite_run"] = (
                 lambda context, payload: federated.execute_paper_suite_job(context, payload)
             )
+
+        handlers.setdefault("client_tutorial", lambda context, _: run_client_tutorial(context, clients_service))
 
         application.state.paths = paths
         application.state.db = db

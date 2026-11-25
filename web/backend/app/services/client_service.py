@@ -1,9 +1,4 @@
-"""Client configuration records.
-
-Phase 3 has no independent client runtime. These endpoints persist configuration
-only and report ``runtime_connected: false``; they do not pretend clients exist.
-"""
-
+"""Client configuration records for the local coordinator."""
 from __future__ import annotations
 
 import uuid

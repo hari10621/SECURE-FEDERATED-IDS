@@ -11,7 +11,7 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { useApi } from '../hooks/useApi'
 import { api } from '../lib/api'
 import { describeError, formatDate } from '../lib/format'
-import type { ClientResponse, ClientStatus } from '../lib/types'
+import type { ClientResponse } from '../lib/types'
 
 export function ClientsPage() {
   const clients = useApi(() => api.listClients({ limit: 100 }), [])
@@ -42,13 +42,51 @@ export function ClientsPage() {
     }
   }
 
-  async function handleStatus(client: ClientResponse, status: ClientStatus) {
+  async function handleEnable(client: ClientResponse) {
     setBusyId(client.id)
     setError(null)
     setNotice(null)
     try {
-      const updated = await api.updateClient(client.id, { status })
-      setNotice(`Client "${updated.name}" is now ${updated.status}. This changes configuration only.`)
+      const updated = await api.enableClient(client.id)
+      setNotice(`Client "${updated.name}" is now enabled.`)
+      clients.reload()
+    } catch (cause) {
+      setError(describeError(cause))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleDisable(client: ClientResponse) {
+    setBusyId(client.id)
+    setError(null)
+    setNotice(null)
+    try {
+      const updated = await api.disableClient(client.id)
+      setNotice(`Client "${updated.name}" is now disabled.`)
+      clients.reload()
+    } catch (cause) {
+      setError(describeError(cause))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function handleDelete(client: ClientResponse) {
+    setBusyId(client.id)
+    setError(null)
+    setNotice(null)
+    if (
+      !window.confirm(
+        `Are you sure you want to delete client "${client.name}" (${client.id})?\nThis will stop any running runtime and permanently remove the client record.`
+      )
+    ) {
+      setBusyId(null)
+      return
+    }
+    try {
+      const deleted = await api.deleteClient(client.id)
+      setNotice(`Client "${deleted.name}" has been deleted.`)
       clients.reload()
     } catch (cause) {
       setError(describeError(cause))
@@ -74,11 +112,6 @@ export function ClientsPage() {
       render: (row) => <StatusBadge status={row.status} />,
     },
     {
-      key: 'runtime',
-      header: 'Runtime',
-      render: () => <StatusBadge tone="warning" label="Not connected" />,
-    },
-    {
       key: 'config',
       header: 'Config',
       render: (row) => (
@@ -97,28 +130,39 @@ export function ClientsPage() {
       header: 'Actions',
       headerClassName: 'text-right',
       className: 'text-right',
-      render: (row) => (
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            loading={busyId === row.id}
-            disabled={row.status === 'enabled'}
-            onClick={() => handleStatus(row, 'enabled')}
-          >
-            Enable
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            loading={busyId === row.id}
-            disabled={row.status === 'disabled'}
-            onClick={() => handleStatus(row, 'disabled')}
-          >
-            Disable
-          </Button>
-        </div>
-      ),
+      render: (row) => {
+        const isEnabled = row.status === 'enabled'
+        return (
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={busyId === row.id}
+              disabled={isEnabled}
+              onClick={() => handleEnable(row)}
+            >
+              Enable
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={busyId === row.id}
+              disabled={!isEnabled}
+              onClick={() => handleDisable(row)}
+            >
+              Disable
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              loading={busyId === row.id}
+              onClick={() => handleDelete(row)}
+            >
+              Delete
+            </Button>
+          </div>
+        )
+      },
     },
   ]
 
@@ -127,7 +171,7 @@ export function ClientsPage() {
       <PageHeader
         eyebrow="Operations"
         title="Federated Clients"
-        description="Client records are persisted configuration only. The backend does not start independent client processes or authenticate client sessions."
+        description="Manage local client configuration records."
         actions={
           <Button
             variant="secondary"
@@ -140,9 +184,8 @@ export function ClientsPage() {
         }
       />
 
-      <Alert tone="warning" title="Configuration, not a running client" className="mb-4">
-        Enabling a client updates the stored status field. It does not establish a network
-        connection, start a worker, or create a trusted remote node.
+      <Alert tone="info" title="Client runtime" className="mb-4">
+        Experiments start their own local workers using the client count selected on the Training page.
       </Alert>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">

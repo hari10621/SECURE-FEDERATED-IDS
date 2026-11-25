@@ -34,10 +34,8 @@ export function IntrusionPage() {
     }
     setBusy(true)
     try {
-      await api.predict(features)
-      setNotice(
-        `Request completed with ${features.length} features. The backend returned no prediction payload.`,
-      )
+      const result = await api.predict(features)
+      setNotice(`${result.label === 1 ? 'Intrusion' : 'Benign'} ? intrusion probability ${(result.prediction * 100).toFixed(2)}%`)
     } catch (cause) {
       setError(describeError(cause))
     } finally {
@@ -64,7 +62,7 @@ export function IntrusionPage() {
       />
 
       {status.loading && !status.data ? (
-        <LoadingState label="Checking model status…" />
+        <LoadingState label="Checking model statusâ€¦" />
       ) : status.error ? (
         <ErrorState message={status.error} onRetry={status.reload} />
       ) : (
@@ -97,11 +95,7 @@ export function IntrusionPage() {
             <UnavailableState
               title="Prediction endpoint is closed"
               reason={status.data?.reason ?? 'No verified prediction backend is available.'}
-              items={[
-                'No admitted model artifact and matching preprocessing manifest.',
-                'No parity check against the research GRU.',
-                'The browser must not approximate a prediction from uploaded data.',
-              ]}
+              items={['Complete a plaintext GRU training run, then refresh the model status.']}
               className="mt-4"
             />
           ) : null}
@@ -122,13 +116,13 @@ export function IntrusionPage() {
                 <Field
                   label="Feature values"
                   htmlFor="prediction-features"
-                  hint="Comma- or whitespace-separated numbers. The research schema expects 48 features."
+                  hint="Enter 48 raw values in training CSV column order. Omit the label."
                 >
                   <TextArea
                     id="prediction-features"
                     value={raw}
                     onChange={(event) => setRaw(event.target.value)}
-                    placeholder="0.12, 0.03, 1.0, …"
+                    placeholder="0.12, 0.03, 1.0, ..."
                     disabled={!available}
                     spellCheck={false}
                   />
@@ -153,10 +147,7 @@ export function IntrusionPage() {
             </CardBody>
           </Card>
 
-          <Alert tone="warning" className="mt-4" title="No inference claim">
-            An empty or unavailable result is intentional. Showing a synthetic class label would
-            misrepresent the system's verified capability.
-          </Alert>
+
         </>
       )}
     </div>

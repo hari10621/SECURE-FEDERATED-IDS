@@ -1,9 +1,4 @@
-"""Client configuration and status endpoints.
-
-These records represent configuration only. No independent client runtime is
-started in Phase 3, so every status explicitly reports ``runtime_connected`` as
-false.
-"""
+"""Local client configuration endpoints."""
 
 from __future__ import annotations
 
@@ -11,6 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
+from ..enums import ClientStatus
 from ..schemas import (
     ClientCreate,
     ClientListResponse,
@@ -59,6 +55,24 @@ def get_client(
     return ClientResponse.model_validate(service.get(client_id))
 
 
+@router.post("/{client_id}/enable", response_model=ClientResponse)
+def enable_client(
+    client_id: str,
+    service: ClientService = Depends(get_clients),
+) -> ClientResponse:
+    client = service.update(client_id, status=ClientStatus.ENABLED, config=None)
+    return ClientResponse.model_validate(client)
+
+
+@router.post("/{client_id}/disable", response_model=ClientResponse)
+def disable_client(
+    client_id: str,
+    service: ClientService = Depends(get_clients),
+) -> ClientResponse:
+    client = service.update(client_id, status=ClientStatus.DISABLED, config=None)
+    return ClientResponse.model_validate(client)
+
+
 @router.get("/{client_id}/status", response_model=ClientStatusResponse)
 def client_status(
     client_id: str,
@@ -66,14 +80,20 @@ def client_status(
 ) -> ClientStatusResponse:
     client = service.get(client_id)
     return ClientStatusResponse(
-        id=client.id,
-        status=client.status,
-        runtime_connected=False,
-        detail=(
-            "Configuration only. Independent client runtimes and authenticated "
-            "client sessions are not implemented in Phase 3."
-        ),
+        id=client.id, status=client.status, runtime_connected=False,
+        detail="Phase 3 configuration record. Training starts its own local client workers.",
     )
+
+
+@router.delete("/{client_id}", response_model=ClientResponse)
+def delete_client(
+    client_id: str,
+    service: ClientService = Depends(get_clients),
+) -> ClientResponse:
+    client = service.get(client_id)
+    with service.db.session() as session:
+        session.delete(client)
+    return ClientResponse.model_validate(client)
 
 
 @router.patch("/{client_id}", response_model=ClientResponse)

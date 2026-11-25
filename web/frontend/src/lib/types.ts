@@ -254,3 +254,24 @@ export interface ErrorDetail {
 export interface ErrorEnvelope {
   error: ErrorDetail
 }
+
+export interface ClientTutorialResult {
+  sensor: { id: string; name: string }
+  peer: { id: string; name: string }
+  dataset: string
+  csv_row: number
+  true_label: number
+  test_rows: number
+  weights_changed: boolean
+  rounds: Array<{
+    round: number
+    digest: string
+    score: number
+    label: number
+    accuracy: number
+    f1: number
+    sensor_samples: number
+  }>
+}
+
+export type ClientTutorialJob = Omit<JobResponse, 'result'> & { result: ClientTutorialResult | null }
