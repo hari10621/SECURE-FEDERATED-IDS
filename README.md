@@ -58,11 +58,4 @@ From the project folder, run:
 
 To restart, run the combined launcher again. Stopping the services preserves your datasets, clients, models, and training history.
 
-## Startup troubleshooting
-
-| What you see | What to do |
-| --- | --- |
-| PowerShell cannot find the start script | Change to the folder containing this README and run the script command shown above. |
-| An empty path error or a missing Python module named app | Run the whole backend or combined launcher script from the project root. It selects the backend working directory for you. |
-| A missing Python package or Vite dependency | Rerun the pip and npm installation commands and check that both finish successfully. |
-| The launcher reports an older backend on port 8000 | Run the stop script, then the start script. If startup still fails, open the log file named in the error message. |
+in the error message. |
