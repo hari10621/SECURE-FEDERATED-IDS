@@ -1,3 +1,5 @@
+import { AutomaticHistory } from '../components/AutomaticRetraining'
+import { TrainingEvidence } from '../components/TrainingEvidence'
 import { History, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { Alert } from '../components/ui/Alert'
@@ -38,6 +40,7 @@ export function HistoryPage() {
       render: (row) => (
         <div className="min-w-0">
           <p className="truncate font-medium text-ink">{row.name}</p>
+          <span className="text-xs text-muted">{row.config.trigger === 'automatic' ? 'Automatic' : 'Manual'}</span>
           <p className="mt-0.5 font-mono text-[11px] text-faint">
             {datasets.data?.items.find((item) => item.id === row.dataset_id)?.name ?? row.dataset_id}
           </p>
@@ -151,9 +154,7 @@ export function HistoryPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Operations"
         title="Experiment History"
-        description="Persisted experiment and job records. Detail panels show the stored configuration, error, and result without recomputing anything."
         actions={
           <Button
             variant="secondary"
@@ -227,6 +228,9 @@ export function HistoryPage() {
             actions={<StatusBadge status={selected.status} />}
           />
           <CardBody className="space-y-4">
+            <p>{selected.config.trigger==='automatic'?'Automatic retraining':'Manual experiment'}</p>
+            {selected.config.trigger==='automatic' && <AutomaticHistory id={String(selected.config.run)}/>}
+            <TrainingEvidence experiment={selected} />
             {selected.error ? (
               <Alert tone="danger" title="Stored experiment error">
                 {selected.error}

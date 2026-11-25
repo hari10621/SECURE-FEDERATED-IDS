@@ -1,4 +1,4 @@
-import { Lock, ShieldCheck, X } from 'lucide-react'
+import { ShieldCheck, X } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { cn } from '../../lib/format'
 import { NAV_SECTIONS } from '../../lib/nav'
@@ -12,7 +12,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </span>
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold tracking-wide text-ink">SecureFed-IDS</p>
-          <p className="text-[11px] uppercase tracking-[0.16em] text-faint">Research console</p>
         </div>
       </div>
 
@@ -68,22 +67,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </nav>
 
-      <div className="border-t border-line/80 px-5 py-4">
-        <p className="flex items-center gap-2 text-[11px] text-muted">
-          <Lock className="size-3.5 text-cyan-glow/70" aria-hidden="true" />
-          Loopback only · local first
-        </p>
-        <p className="mt-1 text-[10px] leading-4 text-faint">
-          No telemetry. Encryption and predictions fail closed.
-        </p>
-      </div>
+
     </div>
   )
 }
 
 export function Sidebar() {
   return (
-    <aside className="sticky top-0 hidden h-screen w-72 shrink-0 border-r border-line bg-navy-900/50 lg:flex">
+    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-line bg-navy-900/50 lg:flex">
       <SidebarContent />
     </aside>
   )

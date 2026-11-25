@@ -5,7 +5,11 @@ if (-not (Test-Path (Join-Path $backendDir 'app/main.py'))) {
 }
 $env:SECUREFED_ENABLE_TRAINING = 'true'
 $env:SECUREFED_ENABLE_PREDICTIONS = 'true'
-$env:SECUREFED_ENABLE_CKKS = 'false'
+$labCredential = Join-Path $projectRoot 'web/var/sdn-agent.credential.xml'
+if (-not $env:SECUREFED_LAB_TOKEN -and (Test-Path -LiteralPath $labCredential)) {
+    $env:SECUREFED_LAB_TOKEN = (Import-Clixml -LiteralPath $labCredential).GetNetworkCredential().Password
+}
+if (-not $env:SECUREFED_ENABLE_CKKS) { $env:SECUREFED_ENABLE_CKKS = 'true' }
 $backendUrl = 'http://127.0.0.1:8000'
 $apiVersion = try { Invoke-RestMethod "$backendUrl/api/v1/version" -TimeoutSec 2 -ErrorAction Stop } catch { $null }
 if ($apiVersion.name -eq 'SecureFed-IDS API') {

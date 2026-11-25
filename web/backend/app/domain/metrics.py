@@ -168,6 +168,8 @@ def compute_metrics(
         "log_loss": log_loss(truth, probabilities),
         "g_mean": balanced_accuracy_score(truth, predictions),
     }
+    negatives = sum(label == 0 for label in truth)
+    metrics["false_positive_rate"] = sum(t == 0 and p == 1 for t,p in zip(truth,predictions)) / negatives if negatives else None
     if include_auc:
         metrics["auc"] = roc_auc_score(truth, probabilities)
     return metrics

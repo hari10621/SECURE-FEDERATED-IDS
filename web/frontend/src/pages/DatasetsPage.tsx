@@ -212,9 +212,7 @@ export function DatasetsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Data"
         title="Datasets"
-        description="Datasets stay on this machine under the backend storage root. Validation checks the 48-feature research schema before any run can use a file."
         actions={
           <Button
             variant="secondary"
@@ -231,7 +229,6 @@ export function DatasetsPage() {
         <Card>
           <CardHeader
             title="Upload a dataset"
-            description="CSV only. The backend stores a SHA-256 digest and records validation warnings and errors."
           />
           <CardBody>
             <form className="space-y-4" onSubmit={handleUpload}>

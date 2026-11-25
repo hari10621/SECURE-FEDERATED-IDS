@@ -42,11 +42,16 @@ class ClientUpdate:
     digest: str
     round_index: int
     session_token: str
+    local_loss: float | None = None
+    worker_pid: int | None = None
+    training_seconds: float | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
             "client_id": self.client_id,
             "sample_count": self.sample_count,
+            "local_loss": self.local_loss,
+            "worker_pid": self.worker_pid,
             "digest": self.digest,
             "round_index": self.round_index,
             "session_token": self.session_token,
@@ -79,6 +84,8 @@ class EncryptedClientUpdate:
     nonce: str
     broadcast_hash: str = ""
     plaintext_size_bytes: int = 0
+    local_hash: str = ""
+    training_seconds: float | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -238,6 +245,7 @@ class SimulatedClient:
         broadcast_hash = ""
         if broadcast is not None:
             broadcast_hash = verify_broadcast(broadcast)
+        start=time.monotonic()
         update = self.train(
             global_weights,
             backend,
@@ -246,6 +254,7 @@ class SimulatedClient:
             batch_size=batch_size,
             learning_rate=learning_rate,
         )
+        training_seconds=time.monotonic()-start
         delta = delta_weights(update.weights, global_weights)
         chunks = tuple(crypto.encrypt_vector(delta))
         return EncryptedClientUpdate(
@@ -259,4 +268,6 @@ class SimulatedClient:
             nonce=nonce,
             broadcast_hash=broadcast_hash,
             plaintext_size_bytes=plaintext_update_size(update.weights),
+            local_hash=weight_digest(update.weights),
+            training_seconds=training_seconds,
         )

@@ -7,11 +7,11 @@ import { EmptyState } from '../components/ui/States'
 export function NotFoundPage() {
   return (
     <div>
-      <PageHeader eyebrow="System" title="Page not found" />
+      <PageHeader title="Page not found" />
       <div className="rounded-xl border border-line bg-navy-900/70">
         <EmptyState
           title="This route does not exist"
-          description="The console has twelve configured pages. Use the navigation or return to the overview."
+          description="Check the address or return to Overview."
           icon={<Compass className="size-5" aria-hidden="true" />}
           action={
             <Link to="/" className={buttonStyles('primary', 'sm')}>

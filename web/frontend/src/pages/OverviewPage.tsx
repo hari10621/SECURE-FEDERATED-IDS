@@ -6,10 +6,8 @@ import {
   Network,
   RefreshCw,
   Server,
-  ShieldCheck,
   Users,
 } from 'lucide-react'
-import { ClientTutorial } from '../components/ClientTutorial'
 import { Link } from 'react-router-dom'
 import { Alert } from '../components/ui/Alert'
 import { Button, buttonStyles } from '../components/ui/Button'
@@ -33,6 +31,7 @@ export function OverviewPage() {
   const datasets = useApi(() => api.listDatasets({ limit: 1 }), [])
   const experiments = useApi(() => api.listExperiments({ limit: 5 }), [])
   const jobs = useApi(() => api.listJobs({ limit: 1 }), [])
+  const clients = useApi(() => api.listClients({ limit: 200 }))
 
   if (health.loading && !health.data) {
     return <LoadingState label="Connecting to the local backend…" />
@@ -42,9 +41,7 @@ export function OverviewPage() {
     return (
       <div>
         <PageHeader
-          eyebrow="Operations"
           title="Overview"
-          description="System health and recent local activity."
         />
         <ErrorState
           message={health.error}
@@ -102,9 +99,7 @@ export function OverviewPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Operations"
         title="Overview"
-        description="A local-first view of the backend, the experiment queue, and the capabilities that are deliberately unavailable."
         actions={
           <Button
             variant="secondary"
@@ -117,6 +112,7 @@ export function OverviewPage() {
               encryption.reload()
               sdn.reload()
               predictions.reload()
+              clients.reload()
             }}
             icon={<RefreshCw className="size-3.5" aria-hidden="true" />}
           >
@@ -124,8 +120,6 @@ export function OverviewPage() {
           </Button>
         }
       />
-
-      <ClientTutorial />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -135,55 +129,29 @@ export function OverviewPage() {
           icon={<Server className="size-4" />}
           tone={health.data?.status === 'ok' ? 'success' : 'warning'}
         />
-        <MetricCard
-          label="Database"
-          value={health.data?.database ?? '—'}
-          hint="SQLite is initialized on backend startup."
-          icon={<ShieldCheck className="size-4" />}
-          tone={health.data?.database === 'ok' ? 'success' : 'warning'}
-        />
-        <MetricCard
-          label="Encryption"
-          value={health.data?.encryption === 'available' ? 'Available' : 'Unavailable'}
-          hint={health.data?.encryption === 'available' ? 'Reported by the backend.' : 'Fail-closed; no CKKS backend.'}
-          icon={<Lock className="size-4" />}
-          tone={health.data?.encryption === 'available' ? 'success' : 'warning'}
-        />
-        <MetricCard
-          label="Clients"
-          value="Local workers"
-          hint="Each tutorial client trains its shard in a local process."
-          icon={<Users className="size-4" />}
-          tone="warning"
-        />
+        <MetricCard label="Connected clients" value={clients.data ? clients.data.items.filter(c=>c.runtime_connected).length : '—'} hint={clients.error} icon={<Users className="size-4"/>}/>
+        <MetricCard label="Datasets" value={datasets.data ? formatNumber(datasets.data.total) : '—'} hint={datasets.error} icon={<Database className="size-4"/>}/>
+        <MetricCard label="Jobs" value={jobs.data ? formatNumber(jobs.data.total) : '—'} hint={jobs.error} icon={<Cpu className="size-4"/>}/>
       </div>
+      <Card className="mt-4">
+        <CardHeader title="Client connections to the central model" />
+        <CardBody className="space-y-3">
+          <p className="break-all text-sm text-ink"><Server className="mr-2 inline size-4 text-cyan-glow" />Central coordinator · {predictions.data?.version ?? predictions.error ?? predictions.data?.reason ?? 'Checking model…'}</p>
+          {clients.error && <Alert tone="warning">{clients.error}</Alert>}
+          {clients.data?.total === 0 && <Link to="/clients">Create a federated client</Link>}
+          {clients.data?.items.map(client => <div key={client.id} className="grid gap-1 border-l-2 border-line pl-3 text-sm sm:grid-cols-3">
+            <span className="text-ink">{client.name}</span>
+            <span>{client.runtime_connected ? `Connected · PID ${client.worker_pid}` : 'Disconnected'}</span>
+            <span className="text-muted">{!predictions.data?.available || predictions.error ? 'Participation unknown' : predictions.data.participants?.includes(client.id) ? 'Contributed' : 'No update for this version'}</span>
+          </div>)}
+        </CardBody>
+      </Card>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <MetricCard
-          label="Datasets"
-          value={datasets.error ? '—' : formatNumber(datasets.data?.total ?? 0)}
-          hint={datasets.error ? datasets.error : 'Validated and stored locally.'}
-          icon={<Database className="size-4" />}
-        />
-        <MetricCard
-          label="Experiments"
-          value={experiments.error ? '—' : formatNumber(experiments.data?.total ?? 0)}
-          hint={experiments.error ? experiments.error : 'Created experiment records.'}
-          icon={<Cpu className="size-4" />}
-        />
-        <MetricCard
-          label="Jobs"
-          value={jobs.error ? '—' : formatNumber(jobs.data?.total ?? 0)}
-          hint={jobs.error ? jobs.error : 'Background jobs, including simulation runs.'}
-          icon={<RefreshCw className="size-4" />}
-        />
-      </div>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <Card>
           <CardHeader
             title="Recent experiments"
-            description="The newest experiment records; results are shown only after a job completes."
             actions={
               <Link to="/history" className={buttonStyles('ghost', 'sm')}>
                 History
@@ -219,7 +187,7 @@ export function OverviewPage() {
 
         <div className="space-y-4">
           <Card>
-            <CardHeader title="Capability status" description="Reported by the backend, not simulated." />
+            <CardHeader title="Capability status" />
             <CardBody className="space-y-4">
               <CapabilityRow
                 icon={<Lock className="size-4" />}
@@ -242,18 +210,6 @@ export function OverviewPage() {
                 available={predictions.data?.available}
                 reason={predictions.data?.reason}
               />
-              <div className="border-t border-line/70 pt-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-2 text-sm text-ink">
-                    <Users className="size-4 text-faint" aria-hidden="true" />
-                    Client execution
-                  </span>
-                  <StatusBadge tone="info" label="Local processes" />
-                </div>
-                <p className="mt-1 text-xs leading-5 text-muted">
-                  The coordinator starts workers for each training round. Their updates are combined on this machine.
-                </p>
-              </div>
             </CardBody>
           </Card>
 
@@ -278,11 +234,7 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <Alert tone="info" className="mt-6" title="Scope reminder">
-        This console reports local state only. It does not claim encrypted execution, legacy GRU
-        parity, production IPS behaviour, or paper-level performance unless a completed local run
-        and a verified backend explicitly support it.
-      </Alert>
+
     </div>
   )
 }

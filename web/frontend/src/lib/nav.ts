@@ -4,10 +4,8 @@ import {
   Database,
   History,
   LayoutDashboard,
-  Lock,
   Network,
   Settings,
-  ShieldAlert,
   ShieldCheck,
   Users,
   Activity,
@@ -38,6 +36,7 @@ export const NAV_SECTIONS: NavSection[] = [
         end: true,
         description: 'System health and recent activity',
       },
+      {to:'/central-model',label:'Central Model',icon:Cpu,description:'GRU versions, validation and deployment'},
       {
         to: '/training',
         label: 'Federated Training',
@@ -79,12 +78,6 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Security',
     items: [
       {
-        to: '/encryption',
-        label: 'Homomorphic Encryption',
-        icon: Lock,
-        description: 'CKKS availability and constraints',
-      },
-      {
         to: '/security',
         label: 'Security Monitoring',
         icon: ShieldCheck,
@@ -101,12 +94,6 @@ export const NAV_SECTIONS: NavSection[] = [
         label: 'SDN Network',
         icon: Network,
         description: 'Controller integration status',
-      },
-      {
-        to: '/ips',
-        label: 'IPS & Prevention',
-        icon: ShieldAlert,
-        description: 'Prevention actions and lab requirements',
       },
     ],
   },

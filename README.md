@@ -1,6 +1,115 @@
-﻿# SecureFed-IDS
+# SecureFed-IDS
 
-SecureFed-IDS is a local research console for training a federated intrusion detector on labeled SDN flow records. It implements the plaintext GRU workflow from *A Secure and Privacy-Preserving Federated Learning-Based Intrusion Detection System for SDN Networks Using Homomorphic Encryption*. The Windows demo runs the API, training workers and dashboard on one machine. The coordinator reads the uploaded CSV and distributes training shards, so it has access to the raw data. The bundled CSVs contain generated traffic examples. Performance on the original research datasets requires separate evaluation.
+SecureFed-IDS is a local research console for training a federated intrusion detector on labeled SDN flow records. It supports sample-weighted plaintext FedAvg and TenSEAL CKKS aggregation for the GRU workflow described in *A Secure and Privacy-Preserving Federated Learning-Based Intrusion Detection System for SDN Networks Using Homomorphic Encryption*. The Windows demo runs the API, training workers and dashboard on one machine. The coordinator reads the uploaded CSV and distributes training shards, so it has access to the raw data. The bundled CSVs contain generated traffic examples. Performance on the original research datasets requires separate evaluation.
+
+## Start here for a ChatGPT-guided demonstration
+
+Attach this README to ChatGPT and paste the prompt below. Open the [local dashboard](http://127.0.0.1:5173/central-model) on the computer running SecureFed-IDS. If ChatGPT cannot see your browser, share the current screen or read out its status when asked.
+
+> Demonstrate SecureFed-IDS to me using the **Central Model GUI walkthrough** below. Start from the page I have open. Guide me one action at a time: name the sidebar page, give the exact control and value, and tell me what confirms success. If you have access to my local browser, navigate with me and read the displayed results. Otherwise wait for my screenshot or answer before moving on.
+>
+> Follow one model from V0 through V2. Help me load the labelled CSV, initialize V0, train two organization clients, aggregate their updates into V1, and validate and deploy it. Then replay one training-partition attack record through a connected client, check the original CSV label with me, and follow the verified event into automatic retraining. Use the mapped-host path if my Mininet lab is connected, or use Security Monitoring for a dataset replay. Explain that the displayed percentage is the model's attack probability for this record. Report a missed detection if that is what the screen shows.
+>
+> Keep track of the model name, both client IDs, the event ID, and the parent and candidate versions so we follow the same run across pages. Wait for each job to finish. At the end, show me the V1/V2 weight hashes, evaluation metrics and worker acknowledgements, and explain in plain English what changed. If a gate rejects the candidate, show me the reason and which version is still deployed. Use only values from my run. Ask whether I want to demonstrate rollback after showing the result.
+
+**Before the first click.** On a fresh installation, use the startup commands below. On an existing installation, check **Central Model** for the deployed version and **Federated Training → Automatic Retraining Policy** for the current settings. Record both if you plan to restore them. Deployment switches the active detector for the whole console. For a fresh V0 demonstration on a populated dashboard, use a distinct model name and two unused client names. If you are resuming a demonstration, select the existing model and continue at its first unfinished checkpoint.
+
+## Central Model GUI walkthrough
+
+On this Windows installation, open two PowerShell windows. Run the first block in one window and the second block in the other.
+
+```powershell
+Set-Location 'C:\Users\HARIS\Desktop\SecureFed-IDS'
+.\start_backend.ps1
+```
+
+```powershell
+Set-Location 'C:\Users\HARIS\Desktop\SecureFed-IDS'
+.\start_frontend.ps1
+```
+
+Open [Central Model](http://127.0.0.1:5173/central-model). After updating the project, stop the old development servers with `.\stop_services.ps1` before starting them again. For a new installation, follow [Import and run the complete project](#import-and-run-the-complete-project). For encrypted rounds, install `web/backend/requirements-crypto.txt` in the same Python environment and start the backend with `$env:SECUREFED_ENABLE_CKKS='true'`. For a host-mapped replay, start the configured Mininet lab and confirm its OpenFlow sessions on **SDN Network**.
+
+| Step | GUI action | Evidence |
+| --- | --- | --- |
+| 1. Prepare data | In **Datasets**, validate and upload `datasets/insdn_compact_1k.csv` as **InSDN** with label column **Label**. | The dataset has 48 ordered numeric features and both classes. |
+| 2. Create V0 | In **Central Model → Create Central Model**, enter **Campus GRU**, select that reference dataset and **Random weights**. Under **Model configuration**, use learning rate **0.0001**, batch size **512** and **2** reference training shards. Click **Create V0**. | V0 shows **initialized**, its timestamp, artifact SHA-256 and weight hash. It has zero training rounds. |
+| 3. Train two clients | In **Federated Clients → Central model client assignment**, choose **Campus GRU**. Leave **Registered client** on **Create new client**. Enter **Campus A sensor**, organization **Campus A**, select the reference dataset, set **Local epochs** to **1**, check **Train on assignment** and click **Save client assignment**. Repeat with **Campus B sensor** and **Campus B**. If using Mininet, choose one available lab host per worker. | Wait for both local jobs to succeed. The table shows real worker PIDs, eligible benign and attack counts, base V0, elapsed training time and local hashes. Clients assigned the reference CSV receive separate training shards. **Or upload client CSV** accepts a separate schema-compatible local dataset. |
+| 4. Configure validation | In **Federated Training → Automatic Retraining Policy**, set the threshold to **1**, rounds and local epochs to **1**, and cooldown to **0** for this tour. Enable retraining and **Deploy after validation**, then **Save policy**. | The policy also supplies the metric gates for manual central rounds. The default allows zero F1 decrease. To reproduce the integration test's permissive gate on a small fixture, use **Allowed F1 decrease = 1**, **Minimum candidate F1 = 0**, **Maximum false-positive rate = 1**, and **Minimum accuracy change = -1**. These values test deployment mechanics. Choose application-specific thresholds for evaluating detection quality. |
+| 5. Build V1 | On the same page under **Central federated round**, choose **Campus GRU**, base **V0**, **Aggregate stored local updates**, and both workers. Click **Run selected operation**. | The coordinator weights each update by its eligible sample count. In **Central Model**, inspect V1, including before-and-after metrics on the fixed reference holdout. A rejected candidate stays in version history. |
+| 6. Deploy V1 | Select V1 under **Inspect version** and click **Deploy validated version**. | The deployed indicator changes to V1. The synchronization table identifies each acknowledging PID. The experiment and notification bell record the operation. |
+| 7. Generate a reviewed event | On **SDN Network**, select the mapped **Lab host**, check **Replay training partition for independent review**, then click **Replay labeled attack**. Alternatively, on **Security Monitoring**, select the client and click **Score training-partition attack sample**. Open the event under **Security event history**. Open the original CSV with the header on line 1, find the displayed CSV row, and check its **Label** column (1 = Attack, 0 = Benign). If it is 1, select **Attack** under **Reviewed label**, enter your source under **Independent label evidence**, then click **Verify sample**. | The event shows the organization, client, origin, model version and actual prediction. A replay can produce a missed detection. Ordinary held-out attack replays remain evaluation-only. |
+| 8. Inspect V2 | Follow the automatic run in **Federated Training** or **Experiment History**. Return to **Central Model**, select V2 and choose V1 under **Compare with**. | Compare weight hashes, accuracy, precision, recall, F1 and false-positive rate. A passing candidate deploys when the policy permits. The contribution and acknowledgement tables show who trained and who actually loaded the version. |
+| 9. Restore a version | Select previously deployed V1 and click **Roll back to version**. Use **Synchronize workers** to check connected participants immediately. | The active version returns to V1 and the bell records the rollback. Missing acknowledgements are retried when a participant reconnects. |
+
+**Other initialization methods.** **Restore registered global model** starts a new lineage from a registered artifact. **Import pretrained artifacts** accepts a SecureFed GRU weight JSON and its matching `preprocessing.json`. For trained versions these files are under `web/var/models/<experiment-id>/<version-id>/`. Pick the matching reference CSV. The import checks the weight layout, source checksum, feature order, clean split and scaler. All three methods create a V0 baseline that requires a validated training round before deployment.
+
+**Lab limits.** The coordinator has one active inference model across all named lineages. Training uses local worker subprocesses and the configured dataset row cap (default 5,000). The clean reference split uses seed 42 and a 30% holdout by default. Set **Split seed** and **Holdout fraction** to match the preprocessing sidecar when importing an existing model. Duplicate feature vectors count once per worker, and overlapping client contributions are rejected. Independent single-client jobs store plaintext updates. For encrypted aggregation, select **Train fresh and aggregate → Require CKKS encryption**, or **Require CKKS** on the automatic policy. That round creates a common ephemeral key for all participants. A CKKS failure stops the run. Mininet counter windows require their own compatible feature schema; the CSV replay and live capture are distinguishable in event history. These local experiments measure behavior on the chosen dataset.
+
+**Reproduce the tests.** From the project root, run the following using the project Python environment. The opt-in integration tests take several minutes, use temporary model stores and train real workers.
+
+```powershell
+$env:SECUREFED_RUN_TF_TESTS='1'
+Push-Location web/backend
+.\.venv-tf\Scripts\python.exe -m pytest tests -q
+Pop-Location
+npm.cmd test --prefix web/frontend
+npm.cmd run build --prefix web/frontend
+```
+
+For the Chrome GUI test, keep the frontend on port 5173 and the authenticated Mininet lab running with hosts h1 and h2. From the project root run the following. The test starts its own temporary API, database and headless browser profile. If using the root virtual environment, substitute its Python executable for `web/backend/.venv-tf/Scripts/python.exe`.
+
+```powershell
+$env:SECUREFED_BROWSER_TEST='1'
+$env:SECUREFED_LAB_TOKEN=(Import-Clixml -LiteralPath '.\web\var\sdn-agent.credential.xml').GetNetworkCredential().Password
+.\web\backend\.venv-tf\Scripts\python.exe -m pip install playwright
+.\web\backend\.venv-tf\Scripts\python.exe -m pytest web/backend/tests/test_central_browser.py -q
+```
+
+### Finish the demonstration
+
+In **Experiment History**, open the automatic experiment and follow its triggering event ID back to **Security Monitoring**. Match the client, organization and scoring version to the replay. In **Central Model**, open the candidate and compare it with its parent. Use the notification bell to trace verification, validation, deployment and synchronization.
+
+| What to read aloud | Where to find it |
+| --- | --- |
+| Which client saw which sample? | **Security Monitoring → Security event history** shows the event ID, client, organization, origin, CSV row, prediction, probability and verified label. |
+| Did the model change, and did detection improve? | **Central Model → Inspect version → Compare with** shows the weight hashes and metrics. Report the held-out row count and before/after F1 and false-positive rate. A changed hash alone establishes a weight update. |
+| Which version is serving, and who received it? | Read **Deployed** on Central Model. Match the version to the acknowledgement table and read each client ID and worker PID. A contribution records training; an acknowledgement confirms the worker loaded the version. |
+
+If no automatic job appears, check the event origin first. A held-out replay stays evaluation-only. For a training-partition event, check the independent **Attack** label, worker connections, saved threshold and cooldown. For a failed job, open its recorded error. For a rejected candidate, keep the observed result in the demonstration and explain the failed gate. Restore any temporary policy settings when finished. Rollback in step 9 is optional.
+
+## Alternative GUI walkthrough for a manual experiment
+
+Use this path when demonstrating a manually created experiment. For the named V0 → V1 → V2 demonstration, follow the Central Model walkthrough above.
+
+| Step | What to do in the GUI | How to tell it worked |
+| --- | --- | --- |
+| 1. Choose the data | Open **Datasets**. Reuse the validated `insdn_sdn_ids_5k` dataset. If it is missing, select `datasets/insdn_sdn_ids_5k.csv`, choose **InSDN**, then **Validate** and **Upload**. | The dataset appears in the list with 5,000 rows and 48 input features. |
+| 2. Connect two clients | In **Federated Clients**, reuse two connected workers. To create one, enter a **Client name**, click **Create client**, then **Enable** in its row. Repeat for the second worker. | Each row shows **Connected** and its own process ID (PID). |
+| 3. Train the global model | In **Federated Training**, name an experiment, select the dataset and **2 clients**, and click **Create experiment**. In the experiment detail, check both workers, choose **Verification (3 rounds, 1 local epoch)**, then **Train Global Model**. Leave **Initialize from admitted global model** unchecked for a fresh run. | The job progresses through three rounds and shows **Succeeded**. If the workers are missing, click **Refresh clients**. |
+| 4. Check what changed | In **Performance Evaluation**, choose your run under **Completed experiment**. Expand a round to see each client’s sample count, loss and update hash. | The global hashes show whether the weights changed. The before-and-after accuracy and F1 scores on the same held-out rows show whether detection improved. |
+| 5. Deploy and check participation | Return to your experiment in **Federated Training** and click **Deploy Global Model**. Open **Intrusion Detection**, then **Overview → Client connections to the central model**. | Intrusion Detection shows **Inference available** and the active version. Overview identifies the workers that **Contributed**. |
+| 6. Test detection through one client | Open **Security Monitoring**, choose one connected **Federated client**, and click **Replay attack sample**. | Read **Attack detected** or **Attack missed**, the attack probability, CSV row, and model version. **Transmission confirmed** identifies the worker PID and the 48 features sent for scoring. |
+
+The replay uses a held-out row already labeled **Attack**. Its percentage is the model’s score for that one row. Replaying it performs inference only. To check a benign example, open **Intrusion Detection → Labeled dataset samples**, choose **Held-out prediction** and **Benign**, then **Load sample → Request sample prediction**.
+
+**Optional SDN lab:** To inspect actual network traffic, open **SDN Network**, confirm the controller is connected, select a mapped host, and click **Send normal ping**. The [SDN dashboard walkthrough](#dashboard-walkthrough) covers topology setup, traffic capture, label review and retraining.
+
+## Demonstrate automatic retraining in the GUI
+
+Use the first five steps of the walkthrough above to deploy a clean GRU and connect at least two registered workers. A previously deployed clean model works if its original CSV and preprocessing artifacts are still available. The two-client demonstration works with the bundled labelled dataset on Windows. The optional Mininet path uses the Ubuntu agent described below.
+
+1. Open **Federated Clients → Client organization**. Select each worker by ID, enter its organization and click **Save organization**. On **SDN Network**, existing host mappings show the organization, worker ID and host IP. For a host-specific demonstration, select a mapped host there.
+2. Open **Federated Training → Automatic Retraining Policy**. Check **Enable automatic retraining**. For a one-event demonstration, set **Verified attack threshold** to **1**, **Rounds** to **1** and **Local epochs** to **1**. Choose the minimum candidate F1, minimum accuracy change, maximum false-positive rate and allowed F1 decrease. These use fractions, so 0.02 means two percentage points. Check **Deploy after validation** to exercise automatic deployment, then click **Save policy**. A fresh installation starts with automatic retraining and deployment disabled, a threshold of three and a five-minute cooldown.
+3. In **Security Monitoring**, select a connected client and click **Score training-partition attack sample** under **Security event history**. For a mapped host, use **SDN Network**, check **Replay training partition for independent review** and replay a labelled sample there instead. Open the resulting event in **Security Monitoring**. Read its origin, model version, CSV row, prediction and attack probability. The bundled CSV is synthetic. Replay sends a labelled record through the worker for inference. Live packet capture is a separate operation.
+4. Open the source CSV and check the displayed row against its label column. In the event, select the **Reviewed label**, enter the evidence you used under **Independent label evidence**, and click **Verify sample**. An example is the dataset filename, row number and its recorded label. Only verified attacks with compatible features and eligible provenance can trigger training. A verified attack may have been missed by the detector. Ordinary **Replay attack sample** uses held-out data and remains evaluation-only after review.
+5. Return to **Federated Training → Automatic Retraining Policy**. Expand the run to see its triggering event IDs, worker IDs, job progress, parent and candidate. The workers start with the deployed weights and train on assigned shards containing existing labelled training data. A reviewed CSV row is assigned once to the reviewing worker. Compatible independently labelled live windows can be added to training. The original test indices and scaler are preserved.
+6. In **Experiment History**, open the automatic experiment. Compare the two global weight hashes and the accuracy, precision, recall, F1 and false-positive rate on the same held-out rows. A **rejected** run preserves the active version. A **validated** run passed and is staged. A **deployed** run passed and activated the new version. Check the active version in **Intrusion Detection**. Under the automatic run, each synchronization acknowledgement identifies the actual worker PID and version. A disconnected worker can acknowledge after reconnecting.
+7. Open the notification bell in the header. Its unread count and messages persist across refreshes. Follow an event link from the run to inspect the originating sample. Use **Intrusion Detection → Restore selected version** to roll back. After a failed job, correct the reported issue, then use **Retry failed run**. Disable the automatic policy and click **Save policy** when the demonstration is finished.
+
+**Using CKKS.** Install the project's TenSEAL dependency and enable the backend's CKKS capability, then select **Require CKKS** in the policy. Registered workers encrypt their local updates. The aggregation backend combines ciphertexts and the existing keyring decrypts the aggregate. Key management and workers run on the same lab computer. An unavailable encryption backend fails the job. The plaintext option must be selected explicitly for a subsequent plaintext run.
+
+**Reading event history.** An alert is a positive prediction. A high-severity alert has an attack probability of at least 90%. A verified label records the operator's independent evidence. Source and destination IPs are populated when observed during capture. Live counter windows use the agent's own feature order and can be scored only by a compatible deployed GRU. Manual scores have no independent sample provenance and are ineligible. The dashboard polls the API every five seconds. SQLite retains events, policy, notifications, run reservations and worker acknowledgements across backend restarts.
 
 ## Import and run the complete project
 
@@ -22,24 +131,46 @@ python -m pip install -r web/backend/requirements-training.txt -r web/backend/re
 npm.cmd ci --prefix web/frontend
 ```
 
-Run `.\start_backend.ps1` in the activated terminal. In a second PowerShell window at the repository root, run `.\start_frontend.ps1`. The backend launcher enables GRU training and predictions, disables CKKS, and uses the activated Python environment when available. Otherwise it looks for the project environments in `.venv` and `web/backend/.venv-tf` before using Python on PATH. Both launchers recognize an already-running local service. The frontend launcher starts Vite. Open the [dashboard](http://127.0.0.1:5173/). Check [API health](http://127.0.0.1:8000/api/v1/health) and the [interactive API reference](http://127.0.0.1:8000/docs) independently.
-
-## First run: verify that the model updates
-
-1. On **Overview**, select **Run tutorial**. The backend creates a sensor and a peer, loads `datasets/insdn_compact_1k.csv`, and reserves 300 of its 1,000 flows for evaluation. The two clients each receive 350 training flows.
-2. Each client trains locally for one epoch. The server combines their weights. The tutorial scores one held-out synthetic intrusion using that first global model. A probability above 0.5 produces an intrusion alert.
-3. Both clients train again from the first aggregate. The dashboard scores the **same flow** with the second aggregate and displays both probabilities, decisions, weight hashes, accuracy and F1. A changed hash establishes that the weights changed. Compare accuracy and F1 on the shared test set to judge whether detection improved.
-4. Reopen **Overview** to see the latest saved tutorial job. **Run tutorial again** creates a new pair of clients. The tutorial uses its own model. To make a model available on **Intrusion Detection**, train an experiment as described below.
-
-The replay is offline. Training on labeled shards drives the update. In one verified run, held-out accuracy rose from 75.7% to 93.7% and F1 rose from 0.711 to 0.920. Both rounds missed the individual replayed intrusion. These values describe that run on synthetic data.
+Run `.\start_backend.ps1` in the activated terminal. In a second PowerShell window at the repository root, run `.\start_frontend.ps1`. The backend launcher enables GRU training and predictions, enables the CKKS capability check unless SECUREFED_ENABLE_CKKS is explicitly false, and uses the activated Python environment when available. Otherwise it looks for the project environments in `.venv` and `web/backend/.venv-tf` before using Python on PATH. Both launchers recognize an already-running local service. The frontend launcher starts Vite. Open the [dashboard](http://127.0.0.1:5173/). Check [API health](http://127.0.0.1:8000/api/v1/health) and the [interactive API reference](http://127.0.0.1:8000/docs) independently.
 
 ## Train and use your own model
 
-1. Open **Datasets**, choose a CSV and validate or upload it. For GRU training, provide **48 numeric feature columns followed by a binary label column**. Use 0 for benign traffic and 1 for intrusion. Keep feature order consistent across training and inference. The included samples have 1,000, 5,000 and 12,000 rows. File details and generation instructions are in the [dataset guide](datasets/README.md).
-2. Open **Federated Training**, create an experiment, select the validated dataset and choose **2, 3, 4, 8 or 12 clients**. The experiment starts its own workers. Manually registering clients is optional.
-3. Select the quick check (one round and one local epoch) or the paper schedule (15 rounds and five local epochs). Start GRU training. The default clean split fits the scaler on training rows and reserves 30% for testing. The default training row cap is 5,000, even for larger uploads.
-4. Review the job status and per-round metrics under **Federated Training**, **Experiment History** or **Performance Evaluation**. The GRU has three recurrent layers with 256, 128 and 64 units, batch normalization, dropout and a sigmoid output. Each worker receives the current global weights. Aggregation weights each client by its sample count by default.
-5. After a successful real plaintext GRU experiment with predictions enabled, open **Intrusion Detection**. Enter 48 raw feature values in the original CSV order, omitting the label. The service verifies the saved weights and scaler checksums, applies the scaler and returns the intrusion probability and binary label.
+1. On **Datasets**, select the validated **insdn_sdn_ids_5k** dataset or upload `datasets/insdn_sdn_ids_5k.csv`. Use 48 numeric features in training order and a binary label. An optional `attack_type` column supplies descriptive metadata. The bundled CSVs are synthetic research fixtures with binary labels.
+2. On **Federated Clients**, create four uniquely named clients. Enable each and wait for its connected status and process ID. On Windows the PID identifies the worker handling requests. Disabling a client stops its worker.
+3. On **Federated Training**, create an experiment using the dataset and a client count of four. Select the four connected workers. Choose **Verification (3 rounds, 1 local epoch)** and **Train Global Model**. The plaintext run uses batch 512, learning rate 0.0001, sample weighting, seed 42 and a 30% held-out split. Training fits the scaler on the training partition. A clean first run starts with new weights. For a subsequent experiment, **Initialize from admitted global model** requires the same data, clean split, schema and scaler.
+4. Open the experiment in **Federated Training**, **Experiment History** or **Performance Evaluation**. Expand a round to see the client IDs, sample counts, losses, update hashes and before/after global hashes. Compare the initial and final metrics on the same held-out records. A weight change alone does not establish better detection.
+5. In the successful experiment detail, click **Deploy Global Model**. Open **Intrusion Detection** and check the active version, SHA-256, source experiment, feature order and label mapping. **Reload Model** reopens and validates the saved artifacts. To roll back, pick a previously validated version and click **Restore selected version**.
+6. Under **Labeled dataset samples**, choose the active model’s source dataset, **Held-out prediction**, and **Attack** or **Benign**. Click **Load sample**, then **Request sample prediction**. Compare actual label, prediction and confidence. If the dataset includes attack types, the first load populates the selector. Raw manual predictions accept exactly 48 finite numbers in the displayed order.
+7. To assign a training row, select **Train · [client name]** under **Sample use**, choose the category, load a sample and assign it. Select that same registered client in the next experiment. The backend checks assignments against the actual training split. Held-out evaluation uses the deployed model’s saved test indices.
+
+### Restart on Windows
+
+Stop foreground launchers with Ctrl+C in each service terminal. For background services started from this checkout, run the commands below after training finishes. The script checks the project path and process command line before stopping each listener.
+
+```powershell
+Set-Location 'C:\Users\HARIS\Desktop\SecureFed-IDS'
+.\stop_services.ps1
+```
+
+Start the services in two separate PowerShell windows. An already-running launcher reports its URL and leaves that process running.
+
+Backend, using the TensorFlow environment in this checkout:
+
+```powershell
+Set-Location 'C:\Users\HARIS\Desktop\SecureFed-IDS'
+. .\web\backend\.venv-tf\Scripts\Activate.ps1
+$env:SECUREFED_ENABLE_CKKS = 'true'
+.\start_backend.ps1
+```
+
+Frontend:
+
+```powershell
+Set-Location 'C:\Users\HARIS\Desktop\SecureFed-IDS'
+.\start_frontend.ps1
+```
+
+Open [the dashboard](http://127.0.0.1:5173/) and [prediction status](http://127.0.0.1:8000/api/v1/predictions/status). The launcher sets the backend working directory. At an interactive PowerShell prompt, use the project path above because `$PSScriptRoot` is only populated inside a script. The CKKS capability check needs TenSEAL in the backend environment. Plaintext experiments work independently.
 
 ### Execution modes
 
@@ -78,12 +209,15 @@ All API paths below are relative to `http://127.0.0.1:8000/api/v1`. The [OpenAPI
 | Training, history and performance | `POST /experiments`, `POST /experiments/{id}/train` or `/simulate`, `GET /experiments/{id}`, `GET /experiments/{id}/metrics`, `POST /experiments/run-paper-suite` |
 | Job progress and cancellation | `GET /jobs/{id}`, `POST /jobs/{id}/cancel` |
 | Intrusion Detection | `GET /predictions/status`, `POST /predictions` with a JSON `features` array |
-| SDN Network and IPS | `GET /sdn/status`, `POST /ips/detect`, `POST /ips/mitigate`. The default adapter is a local mock. Live controller operation requires separate verification. |
-| Encryption, security and settings | `GET /encryption/status` reports backend availability. Settings controls the browser's API base URL and optional bearer token. |
+| Security Monitoring | `POST /clients/{client_id}/attack-replay` scores a recorded attack through a connected worker. `GET /sdn/inventory/events` supplies SDN lab detections. |
+| SDN Network | `GET /sdn/status` and `GET /sdn/topology` report controller sessions, hosts, switches and links. |
+| Settings | Configure the browser's API base URL and optional bearer token. |
+
+The API also exposes `GET /encryption/status` for capability checks, `POST /ips/detect` for inference and `POST /ips/mitigate` for read-only recommendations.
 
 ## Configuration and persisted data
 
-Set environment variables in the backend shell before startup. A direct Uvicorn launch uses the defaults in [config.py](web/backend/app/config.py). The [Windows launcher](start_backend.ps1) explicitly sets training, prediction and CKKS flags for the plaintext demo.
+Set environment variables in the backend shell before startup. A direct Uvicorn launch uses the defaults in [config.py](web/backend/app/config.py). The [Windows launcher](start_backend.ps1) enables training and predictions. The CKKS capability flag is independent of plaintext training.
 
 | Setting | Default or effect |
 | --- | --- |
@@ -125,3 +259,75 @@ Pop-Location
 | Dataset uploads but cannot train | Check that it has 48 numeric features, a final binary label column and a valid schema report. |
 | Predictions unavailable after the tutorial | Train a regular plaintext GRU experiment with predictions enabled. The tutorial keeps its model separate. |
 | Tutorial route returns 404 | Restart the backend from the same project copy as the frontend so both serve the tutorial version. |
+
+## Isolated SDN network
+
+The Windows FastAPI service talks to a bearer-authenticated Ubuntu Mininet agent over loopback. For a separate VM, forward the agent port over SSH. Inside Ubuntu the OVS learning controller listens on 127.0.0.1:16653, the agent on 127.0.0.1:8765, and switches negotiate OpenFlow 1.3. Hosts have private veth links in network namespaces. The agent creates only its own switches and links and provides fixed operations for lifecycle, inventory, two ICMP echoes and short host captures. There is no shell-command API, external traffic target, NAT or physical interface attachment.
+
+### Ubuntu setup
+
+Use a dedicated Ubuntu VM with Mininet/OVS kernel support. From a copy of the project root inside the VM:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y mininet openvswitch-switch openvswitch-testcontroller iproute2 iputils-ping openssl
+sudo systemctl start openvswitch-switch
+sudo install -d -m 700 /opt/securefed-lab
+sudo install -m 700 lab/start.sh lab/mininet_agent.py lab/capture_window.py /opt/securefed-lab/
+sudo sh /opt/securefed-lab/start.sh
+```
+
+Keep that terminal running. Stop the network from the GUI before shutting down the agent. The configuration and counter history last for the agent session. Sample reviews, event receipts and mappings are stored in Windows at `web/var/sdn.sqlite3`, scoped to the lab identifier. Deleted configurations get a new ID when recreated. The agent credential is private to root at `/run/securefed-sdn/token` and renews after VM reboot. The controller endpoint and OpenFlow port in the form refer to Ubuntu loopback. A different OpenFlow 1.3 controller can run there when configured separately. The stock startup script launches the OVS learning controller.
+
+### Windows connection
+
+On this computer the Ubuntu WSL2 distribution supplies the VM and Windows localhost forwarding supplies the tunnel. To start the previously installed agent again:
+
+```powershell
+wsl.exe -d Ubuntu -u root -- sh /opt/securefed-lab/start.sh
+```
+
+In a second PowerShell terminal, start the backend from the repository root:
+
+```powershell
+Set-Location 'C:\Users\HARIS\Desktop\SecureFed-IDS'
+$env:SECUREFED_LAB_TOKEN = (wsl.exe -d Ubuntu -u root -- cat /run/securefed-sdn/token).Trim()
+$env:SECUREFED_LAB_PORT = '8765'
+$env:SECUREFED_LAB_TIMEOUT = '20'
+.\start_backend.ps1
+```
+
+For a separate Ubuntu VM, replace the WSL credential command with the token from that VM (read it using sudo in the VM terminal). Use a host-only management interface and an SSH account with a verified host key. Start the tunnel in its own Windows terminal, replacing the example account and address:
+
+```powershell
+ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 ubuntu@192.168.56.101
+```
+
+In the backend terminal, enter the VM token privately:
+
+```powershell
+$credential = Get-Credential -UserName 'sdn-agent' -Message 'Enter the Ubuntu agent token as the password'
+$env:SECUREFED_LAB_TOKEN = $credential.GetNetworkCredential().Password
+.\start_backend.ps1
+```
+
+The launcher also supports a Windows user-encrypted credential at `web/var/sdn-agent.credential.xml`. An explicit environment variable takes precedence. Restart the backend after changing agent credentials. In another Windows terminal:
+
+```powershell
+Set-Location 'C:\Users\HARIS\Desktop\SecureFed-IDS'
+.\start_frontend.ps1
+```
+
+### Dashboard walkthrough
+
+1. Open **SDN Network**. Choose single, linear or tree, switch count, total host count, private subnet and controller endpoint. **Create network** saves the configuration; **Start network** constructs it in Ubuntu. The default linear network connects two switches, four client hosts and one testing host. **Refresh topology** checks actual switch controller sessions. A running network refreshes every five seconds. **Stop network** tears down its links; **Delete network** clears the stopped configuration.
+2. Zoom, pan and select a node. Inspect host IP/MAC, switch port, TX/RX counters and worker mapping. Expand a switch for its OpenFlow rules. Packet totals and rates use host egress to avoid counting forwarded packets repeatedly at every switch. Throughput is based on differences in bytes and elapsed monotonic time. The default veth links have no configured bandwidth ceiling, so utilization percentage is unavailable.
+3. Under **Host testing and reviewed samples**, choose a host and a registered worker, then **Map client**. The worker PID is measured on Windows. The deployed participation column comes from the model manifest. A mapped host has no independently reported local model version. Remote training would require a host-side agent, mutual authentication, a challenge-bound round/model hash, shard authorization and verified update receipts. The current Ubuntu agent owns capture and network operations only.
+4. Select **Send normal ping**. The last lab host sends two ICMP requests to the selected host. To see protocol counts and endpoint pairs, check **Include normal ICMP during capture**, then **Capture host window**. This records up to 100 observed IPv4 flows, including TCP/UDP ports when present during the sampling window. Packet headers stay in the VM; only metadata and measured rates cross the management link.
+5. **Replay labeled attack** passes a held-out source CSV row through the mapped Windows worker and scores it with the admitted GRU. It produces a recorded replay event, without injecting attack packets. **Security Monitoring → SDN lab detections** displays source, host, score and model version. Topology alert indicators include both live detections and recorded replays. Ordinary forwarding rules are visible in the inventory. IPS offers review advice only.
+6. To train on live measurements, review a counter window under its mapped host and approve its independently known label. Each row is 12 consecutive approximately 250 ms intervals, each containing TX packets/s, RX packets/s, TX bytes/s and RX bytes/s in that order. Rates use the actual elapsed time. Names run from `interval_01_tx_packets_per_second` to `interval_12_rx_bytes_per_second`. The legacy research CSV contains normalized protocol values, application metadata and generated anomaly scores whose semantics cannot be recovered from switch counters. Live scoring requires an exact ordered counter-schema match.
+7. Once both classes have reviewed samples sufficient for training and holdout, **Publish reviewed dataset**. In **Federated Training**, select that dataset and all its contributing workers, then train in clean plaintext mode. The original capture owner determines training shards. The held-out split precedes scaler fitting and assignment. Inspect round metrics, validate, then choose **Deploy Global Model**. A subsequent capture with this schema produces a live prediction. Until such a model is deployed, the GUI displays the measurement and its review status. A model prediction never supplies the approval label.
+
+The read API includes `GET /api/v1/sdn/status`, `/sdn/topology` and `/sdn/inventory/{hosts,switches,links,flows,history,events}` under the same prefix. The interactive API reference lists lifecycle, mapping, capture, replay and review routes. The VM agent uses Mininet's switch connection status and reads actual flow tables using `ovs-ofctl -O OpenFlow13 dump-flows`. [Mininet switch API](https://mininet.org/api/classmininet_1_1node_1_1OVSSwitch.html) · [Open vSwitch OpenFlow reference](https://docs.openvswitch.org/en/latest/faq/openflow/)
+
+Run the real VM integration test from the repository root with `sudo /usr/bin/python3 lab/test_mininet.py`. It creates temporary single, linear and tree networks, checks controller loss, captures actual ICMP, and removes its own networks.

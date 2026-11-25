@@ -1,6 +1,8 @@
+import { TrainingEvidence } from '../components/TrainingEvidence'
+import { useState } from 'react'
+import { Field, Select } from '../components/ui/Field'
 import { BarChart3, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Alert } from '../components/ui/Alert'
 import { Button, buttonStyles } from '../components/ui/Button'
 import { Card, CardBody, CardHeader } from '../components/ui/Card'
 import { DataTable, type Column } from '../components/ui/DataTable'
@@ -17,7 +19,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/ui/States'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { useApi } from '../hooks/useApi'
 import { api } from '../lib/api'
-import { formatDate, formatMetric, formatNumber, humanize } from '../lib/format'
+import { formatDate, formatMetric, humanize } from '../lib/format'
 import type { ExperimentResponse, FederatedResult, RoundMetric } from '../lib/types'
 
 function completedResult(experiment: ExperimentResponse): FederatedResult | null {
@@ -32,7 +34,8 @@ export function PerformancePage() {
   const datasets = useApi(() => api.listDatasets({ limit: 100 }), [])
   const rows = experiments.data?.items ?? []
   const completed = rows.filter((experiment) => completedResult(experiment) !== null)
-  const latest = completed[0]
+  const [selectedId, setSelectedId] = useState('')
+  const latest = completed.find(experiment => experiment.id === selectedId) ?? completed[0]
   const latestResult = latest ? completedResult(latest) : null
   const rounds = latestResult?.rounds ?? []
   const roundMetric = rounds.some((round) => typeof round.metrics?.accuracy === 'number')
@@ -146,9 +149,7 @@ export function PerformancePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Evaluation"
         title="Performance Evaluation"
-        description="Metrics are read from completed experiment records. The console does not compute, estimate, or backfill missing scores."
         actions={
           <Button
             variant="secondary"
@@ -173,7 +174,7 @@ export function PerformancePage() {
         <Card>
           <EmptyState
             title="No completed metrics"
-            description="A metric appears only after a backend job succeeds and stores final_metrics. Run a plaintext simulation or an available GRU training job first."
+            description="Select a completed training run to view metrics."
             icon={<BarChart3 className="size-5" aria-hidden="true" />}
             action={
               <Link to="/training" className={buttonStyles('primary', 'sm')}>
@@ -184,13 +185,12 @@ export function PerformancePage() {
         </Card>
       ) : (
         <>
-          <Alert tone={latestResult?.encrypted ? 'success' : 'warning'} className="mb-4" title="Local result scope">
-            Showing the latest of {formatNumber(completed.length)} completed{' '}
-            {completed.length === 1 ? 'experiment' : 'experiments'}. Mode:{' '}
-            {humanize(latestResult?.mode)} · encrypted: {String(Boolean(latestResult?.encrypted))} ·
-            parity: {latestResult?.parity ?? 'unverified'}. These are not paper-level or
-            production-performance claims.
-          </Alert>
+          <Field label="Completed experiment" htmlFor="evaluated-run">
+            <Select id="evaluated-run" value={latest?.id ?? ''} onChange={event => setSelectedId(event.target.value)}>
+              {completed.map(experiment => <option key={experiment.id} value={experiment.id}>{experiment.name}</option>)}
+            </Select>
+          </Field>
+          {latest && <TrainingEvidence experiment={latest} />}
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {latestResult?.final_metrics
@@ -212,7 +212,6 @@ export function PerformancePage() {
             <Card>
               <CardHeader
                 title="Final metric comparison"
-                description="Core classification metrics from the latest completed run."
               />
               <CardBody>
                 <MetricBarChart metrics={latestResult?.final_metrics ?? null} />
@@ -268,7 +267,6 @@ export function PerformancePage() {
             <Card>
               <CardHeader
                 title="Loss convergence"
-                description="Per-round log-loss for the latest plaintext and encrypted experiments."
               />
               <CardBody>
                 {standardRounds.length > 0 || heRounds.length > 0 ? (
@@ -291,7 +289,6 @@ export function PerformancePage() {
             <Card>
               <CardHeader
                 title="Computation time breakdown"
-                description="Per-round training, encryption, aggregation, and decryption time."
               />
               <CardBody>
                 {timedRounds.length > 0 ? (
@@ -306,7 +303,6 @@ export function PerformancePage() {
             <Card>
               <CardHeader
                 title="Communication overhead"
-                description="Average plaintext versus CKKS ciphertext MB per client per round."
               />
               <CardBody>
                 {standardRounds.length > 0 || heRounds.length > 0 ? (
@@ -323,7 +319,6 @@ export function PerformancePage() {
           <Card className="mt-4">
             <CardHeader
               title="Completed experiment records"
-              description="Only succeeded experiments with a final_metrics object are listed as evaluated."
             />
             <DataTable
               columns={columns}

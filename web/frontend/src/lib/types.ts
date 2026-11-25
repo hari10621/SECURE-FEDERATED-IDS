@@ -49,7 +49,38 @@ export interface SdnStatusResponse {
   reason: string
 }
 
+export interface LabelledSample {
+  dataset_id: string
+  features: number[]
+  actual: number
+  index: number
+  version: string | null
+  partition: 'train' | 'test'
+  attack_types: string[]
+  attack_type: string | null
+}
+
+export interface AttackReplay {
+  client_name: string
+  worker_pid: number
+  csv_row: number
+  feature_count: number
+  prediction: number
+  label: number
+  version: string
+}
+
 export interface PredictionStatusResponse {
+  version?: string
+  sha256?: string
+  trained_at?: string
+  participants?: string[]
+  source_experiment?: string
+  dataset_id?: string
+  rounds?: number
+  features?: string[]
+  feature_count?: number
+  labels?: Record<string, string>
   available: boolean
   reason: string
   model: string | null
@@ -148,6 +179,8 @@ export interface JobListResponse {
 }
 
 export interface ClientResponse {
+  runtime_connected: boolean
+  worker_pid: number | null
   id: string
   name: string
   status: ClientStatus
@@ -181,6 +214,9 @@ export interface SimulationRequest {
 }
 
 export interface TrainingRequest extends SimulationRequest {
+  client_ids?: string[]
+  initialize_from_active?: boolean
+  auto_deploy?: boolean
   byzantine_threshold?: number
   threshold?: number
   require_encryption?: boolean
@@ -211,6 +247,8 @@ export interface ExperimentMetricsResponse {
 }
 
 export interface FederatedRound {
+  global_hash_after?: string
+  global_hash_before?: string
   round: number
   updates: Array<Record<string, unknown>>
   scaling_factors: number[]

@@ -24,14 +24,10 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenu={() => setMobileOpen(true)} />
         <main id="main-content" className="relative flex-1">
-          <div className="surface-grid pointer-events-none absolute inset-0 opacity-[0.35]" aria-hidden="true" />
           <div className="relative mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             <Outlet />
           </div>
         </main>
-        <footer className="border-t border-line/70 px-4 py-4 text-center text-[11px] text-faint sm:px-6 lg:px-8">
-          SecureFed-IDS local console · results are local and unverified unless explicitly labelled
-        </footer>
       </div>
     </div>
   )

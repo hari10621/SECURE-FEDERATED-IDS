@@ -315,11 +315,20 @@ def test_real_keras_gru_training_completes(tmp_path):
         uploaded = upload_dataset(client, content=dataset.read_bytes())
         uploaded.raise_for_status()
         experiment = create_experiment(client, uploaded.json()["id"]).json()
+        ids = []
+        pids = []
+        for i in range(4):
+            record = client.post("/api/v1/clients", json={"name": f"worker-{i}"}).json()
+            enabled = client.post(f"/api/v1/clients/{record['id']}/enable").json()
+            assert enabled["runtime_connected"]
+            ids.append(record["id"])
+            pids.append(enabled["worker_pid"])
         response = client.post(
             f"/api/v1/experiments/{experiment['id']}/train",
             json={
                 "mode": "clean",
                 "rounds": 2,
+                "client_ids": ids,
                 "local_epochs": 1,
                 "batch_size": 64,
                 "learning_rate": 0.0001,
@@ -348,6 +357,23 @@ def test_real_keras_gru_training_completes(tmp_path):
         with dataset.open(newline="") as stream:
             row = next(csv.DictReader(stream))
         features = [float(value) for key, value in row.items() if key != "Label"]
+        assert not client.get("/api/v1/predictions/status").json()["available"]
+        version = artifact["version"]
+        assert client.post(f"/api/v1/predictions/versions/{version}/deploy").json()["version"] == version
+        assert client.post("/api/v1/predictions/reload").json()["features"] == list(row)[:-1]
+        for record in result["rounds"]:
+            assert record["global_hash_before"] != record["aggregate_digest"]
+            assert [u["worker_pid"] for u in record["updates"]] == pids
+            assert [u["client_id"] for u in record["updates"]] == ids
+            assert all(u["local_loss"] >= 0 for u in record["updates"])
+        assert result["rounds"][0]["aggregate_digest"] == result["rounds"][1]["global_hash_before"]
+        assert client.post("/api/v1/predictions/versions/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/deploy").status_code == 503
+        assert client.get("/api/v1/predictions/status").json()["version"] == version
+        for label in (0, 1):
+            sample = client.get(f"/api/v1/datasets/{uploaded.json()['id']}/sample", params={"label": label}).json()
+            assert sample["index"] in result["dataset"]["split"]["test"]
+            assert sample["actual"] == label
+            assert client.post("/api/v1/predictions", json={"features": sample["features"]}).json()["class_name"] in {"Benign", "Attack"}
         prediction = client.post("/api/v1/predictions", json={"features": features})
         prediction.raise_for_status()
         probability = prediction.json()["prediction"]
@@ -357,6 +383,44 @@ def test_real_keras_gru_training_completes(tmp_path):
         ips.raise_for_status()
         assert ips.json()["available"] is True
         assert f"prediction={probability:.4f}" in ips.json()["reason"]
+        for invalid in (features[:-1], features + [0], ["1"] * 48):
+            assert client.post("/api/v1/predictions", json={"features": invalid}).status_code == 422
+        replay = client.post(f"/api/v1/clients/{ids[0]}/attack-replay")
+        replay.raise_for_status()
+        receipt = replay.json()
+        assert receipt["worker_pid"] == pids[0] and receipt["feature_count"] == 48
+        assert receipt["actual"] == 1 and receipt["version"] == version
+        assert receipt["csv_row"] - 2 in result["dataset"]["split"]["test"]
+        assert 0 <= receipt["prediction"] <= 1
+        offline = client.post("/api/v1/clients", json={"name": "offline"}).json()
+        assert client.post(f"/api/v1/clients/{offline['id']}/attack-replay").status_code == 409
+        dataset_id = uploaded.json()["id"]
+        warm = create_experiment(client, dataset_id, name="Warm start").json()
+        options = {"rounds": 1, "seed": 7, "mode": "clean", "client_ids": ids,
+                   "initialize_from_active": True, "local_epochs": 1, "batch_size": 64}
+        def assign(row_id):
+            client.patch(f"/api/v1/clients/{ids[0]}", json={"config": {
+                "assignment_dataset": dataset_id, "training_rows": [row_id]}}).raise_for_status()
+        assign(result["dataset"]["split"]["train"][0])
+        started = client.post(f"/api/v1/experiments/{warm['id']}/train", json=options)
+        started.raise_for_status()
+        completed = _wait_for_job(client, started.json()["id"], timeout=360)
+        assert completed["status"] == "succeeded", completed
+        updated = client.get(f"/api/v1/experiments/{warm['id']}").json()["result"]
+        assert updated["parent_version"] == version
+        assert updated["rounds"][0]["global_hash_before"] == result["rounds"][-1]["aggregate_digest"]
+        candidate = updated["artifact"]["version"]
+        assert client.get("/api/v1/predictions/status").json()["version"] == version
+        for selected in (candidate, version):
+            assert client.post(f"/api/v1/predictions/versions/{selected}/deploy").json()["version"] == selected
+        invalid_prep = settings.data_dir / updated["artifact"]["preprocessing_file"]
+        invalid_prep.write_bytes(invalid_prep.read_bytes() + b" ")
+        assert client.post(f"/api/v1/predictions/versions/{candidate}/deploy").status_code == 503
+        assert client.get("/api/v1/predictions/status").json()["version"] == version
+        assign(result["dataset"]["split"]["test"][0])
+        rejected = create_experiment(client, dataset_id, name="Held-out assignment").json()
+        job_id = client.post(f"/api/v1/experiments/{rejected['id']}/train", json=options).json()["id"]
+        assert _wait_for_job(client, job_id, timeout=360)["status"] == "failed"
         scaler_path = settings.data_dir / artifact["preprocessing_file"]
         scaler_path.write_bytes(scaler_path.read_bytes() + b" ")
         assert client.post("/api/v1/predictions", json={"features": features}).status_code == 503

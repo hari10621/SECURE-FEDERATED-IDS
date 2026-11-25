@@ -73,6 +73,13 @@ class JobService:
             return session.scalar(select(Job).where(Job.job_type == job_type)
                                   .order_by(Job.created_at.desc()).limit(1))
 
+    def attach_experiment(self, job_id: str, experiment_id: str) -> None:
+        with self.db.session() as session:
+            job = session.get(Job, job_id)
+            if job is None:
+                raise NotFoundError(f"job not found: {job_id}")
+            job.experiment_id = experiment_id
+
     def count(self) -> int:
         with self.db.session() as session:
             return session.scalar(select(func.count()).select_from(Job)) or 0

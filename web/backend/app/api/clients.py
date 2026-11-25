@@ -15,7 +15,10 @@ from ..schemas import (
     ClientUpdate,
 )
 from ..services.client_service import ClientService
-from .deps import get_clients, require_auth
+from ..errors import ConflictError
+from ..services.dataset_service import DatasetService
+from ..services.model_service import ModelService
+from .deps import get_clients, get_datasets, get_models, require_auth
 
 router = APIRouter(
     prefix="/clients",
@@ -24,12 +27,19 @@ router = APIRouter(
 )
 
 
+def view(service, client):
+    result = ClientResponse.model_validate(client)
+    result.worker_pid = service.pid(client.id)
+    result.runtime_connected = result.worker_pid is not None
+    return result
+
+
 @router.post("", response_model=ClientResponse, status_code=201)
 def create_client(
     payload: ClientCreate,
     service: ClientService = Depends(get_clients),
 ) -> ClientResponse:
-    return ClientResponse.model_validate(
+    return view(service,
         service.create(name=payload.name, config=payload.config)
     )
 
@@ -42,7 +52,7 @@ def list_clients(
 ) -> ClientListResponse:
     rows, total = service.list(limit=limit, offset=offset)
     return ClientListResponse(
-        items=[ClientResponse.model_validate(row) for row in rows],
+        items=[view(service, row) for row in rows],
         total=total,
     )
 
@@ -52,7 +62,47 @@ def get_client(
     client_id: str,
     service: ClientService = Depends(get_clients),
 ) -> ClientResponse:
-    return ClientResponse.model_validate(service.get(client_id))
+    return view(service, service.get(client_id))
+
+
+@router.post("/{client_id}/attack-replay")
+def attack_replay(client_id: str, offset: Annotated[int, Query(ge=0)] = 0,
+                  service: ClientService = Depends(get_clients),
+                  datasets: DatasetService = Depends(get_datasets),
+                  models: ModelService = Depends(get_models)):
+    return score_client_sample(client_id,offset,service,datasets,models)
+
+def score_client_sample(client_id,offset,service,datasets,models,partition="test",host=None):
+    client = service.get(client_id)
+    manifest, (_, weights, prep, _) = models.current()
+    source = datasets.source_id(prep["dataset_id"], weights["metadata"]["dataset_sha256"])
+    sample = datasets.labelled_sample(source, 1, partition, offset, None, models)
+    if sample["version"] != manifest["version"]:
+        raise ConflictError("Deployment changed. Run the replay again.")
+    receipt = service.replay(client.id, sample["features"])
+    prediction = models.predict(receipt["features"])
+    if prediction["version"] != sample["version"]:
+        raise ConflictError("Deployment changed during inference. Run the replay again.")
+    mapped_lab = None
+    if host is None:
+        sdn = models.automatic.app.sdn
+        with sdn.db() as db:
+            mapped = db.execute("SELECT 1 FROM mapping WHERE client=? LIMIT 1", (client.id,)).fetchone()
+        if mapped:
+            snapshot = sdn.snapshot()
+            host = next((h for h in snapshot["hosts"] if h.get("client") == client.id), None)
+            mapped_lab = snapshot.get("lab_id") if host else None
+    with models.automatic.db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        eid=models.automatic.record(db,client=client_id,origin="dataset evaluation" if partition=="test" else "dataset training",
+            key=weights["metadata"]["dataset_sha256"]+":"+str(sample["index"]),features=sample["features"],schema=prep["feature_names"],
+            result=prediction,source=weights["metadata"]["dataset_sha256"],row_index=sample["index"],truth=sample["actual"],
+            host=(host or {}).get("name"),host_ip=(host or {}).get("ip"))
+    response = {"event_id":eid,"client_name": client.name, "worker_pid": receipt["pid"], "csv_row": sample["index"] + 2,
+            "feature_count": len(receipt["features"]), "actual": sample["actual"], **prediction}
+    if mapped_lab:
+        sdn.event(mapped_lab,host["name"],client.id,"recorded dataset replay",response)
+    return response
 
 
 @router.post("/{client_id}/enable", response_model=ClientResponse)
@@ -61,7 +111,7 @@ def enable_client(
     service: ClientService = Depends(get_clients),
 ) -> ClientResponse:
     client = service.update(client_id, status=ClientStatus.ENABLED, config=None)
-    return ClientResponse.model_validate(client)
+    return view(service, client)
 
 
 @router.post("/{client_id}/disable", response_model=ClientResponse)
@@ -70,7 +120,7 @@ def disable_client(
     service: ClientService = Depends(get_clients),
 ) -> ClientResponse:
     client = service.update(client_id, status=ClientStatus.DISABLED, config=None)
-    return ClientResponse.model_validate(client)
+    return view(service, client)
 
 
 @router.get("/{client_id}/status", response_model=ClientStatusResponse)
@@ -80,8 +130,8 @@ def client_status(
 ) -> ClientStatusResponse:
     client = service.get(client_id)
     return ClientStatusResponse(
-        id=client.id, status=client.status, runtime_connected=False,
-        detail="Phase 3 configuration record. Training starts its own local client workers.",
+        id=client.id, status=client.status, runtime_connected=bool(service.pid(client.id)),
+        detail=f"Worker PID {service.pid(client.id)}" if service.pid(client.id) else "Phase 3 configuration record; worker disconnected.",
     )
 
 
@@ -91,9 +141,10 @@ def delete_client(
     service: ClientService = Depends(get_clients),
 ) -> ClientResponse:
     client = service.get(client_id)
+    service.update(client_id, status=ClientStatus.DISABLED, config=None)
     with service.db.session() as session:
         session.delete(client)
-    return ClientResponse.model_validate(client)
+    return view(service, client)
 
 
 @router.patch("/{client_id}", response_model=ClientResponse)
@@ -102,7 +153,7 @@ def update_client(
     payload: ClientUpdate,
     service: ClientService = Depends(get_clients),
 ) -> ClientResponse:
-    return ClientResponse.model_validate(
+    return view(service,
         service.update(
             client_id,
             status=payload.status,

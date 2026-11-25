@@ -1,87 +1,64 @@
-import { EyeOff, FileWarning, KeyRound, ShieldCheck } from 'lucide-react'
+import { EventHistory } from '../components/AutomaticRetraining'
+import { useState } from 'react'
 import { Alert } from '../components/ui/Alert'
+import { Button } from '../components/ui/Button'
 import { Card, CardBody, CardHeader } from '../components/ui/Card'
+import { Field, Select } from '../components/ui/Field'
 import { PageHeader } from '../components/ui/PageHeader'
-import { UnavailableState } from '../components/ui/States'
+import { useApi } from '../hooks/useApi'
+import { labRequest, type LabSnapshot } from '../lib/sdn'
+import { api } from '../lib/api'
+import { describeError } from '../lib/format'
+import type { AttackReplay } from '../lib/types'
 
 export function SecurityPage() {
-  return (
-    <div>
-      <PageHeader
-        eyebrow="Security"
-        title="Security Monitoring"
-        description="There is no security monitoring subsystem in this local build. This page describes the current posture and the missing capabilities instead of showing invented events."
-      />
-
-      <UnavailableState
-        title="No monitoring data source"
-        reason="The backend exposes health, dataset, experiment, client, and job records. It does not emit a security event stream, authentication audit log, or alert feed for this console."
-        items={[
-          'No per-client authenticated sessions or request signing.',
-          'No audit event store or query API.',
-          'No replay protection, rate-limit telemetry, or anomaly detector.',
-          'No alerting or incident timeline.',
-        ]}
-        className="mb-4"
-      />
-
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader title="Current local posture" />
-          <CardBody className="space-y-4 text-sm leading-6 text-muted">
-            <div className="flex items-start gap-3">
-              <KeyRound className="mt-0.5 size-4 shrink-0 text-cyan-glow" aria-hidden="true" />
-              <div>
-                <p className="font-medium text-ink">Optional shared bearer token</p>
-                <p className="mt-0.5">
-                  The backend supports a shared local token. It is not a per-client identity and
-                  does not provide authorization scopes.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-cyan-glow" aria-hidden="true" />
-              <div>
-                <p className="font-medium text-ink">Loopback-first deployment</p>
-                <p className="mt-0.5">
-                  The default API base is 127.0.0.1. Exposing the backend on a network interface
-                  requires a separate review.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3">
-              <EyeOff className="mt-0.5 size-4 shrink-0 text-faint" aria-hidden="true" />
-              <div>
-                <p className="font-medium text-ink">No fabricated telemetry</p>
-                <p className="mt-0.5">
-                  This console does not display synthetic logins, threats, or traffic charts. The
-                  empty state is the accurate state.
-                </p>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-
-        <Card>
-          <CardHeader title="Required before security claims" />
-          <CardBody className="space-y-3 text-sm leading-6 text-muted">
-            <div className="flex items-start gap-3">
-              <FileWarning className="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden="true" />
-              <div>
-                <p className="font-medium text-ink">Audit and identity</p>
-                <p className="mt-0.5">
-                  Authenticated client sessions, signed requests, immutable audit events, and a
-                  retention policy.
-                </p>
-              </div>
-            </div>
-            <Alert tone="warning" title="No production security claim">
-              A local loopback console with an optional shared token is not a production security
-              architecture. Do not present it as one.
-            </Alert>
-          </CardBody>
-        </Card>
-      </div>
-    </div>
-  )
+  const clients = useApi(() => api.listClients({limit: 200}))
+  const labEvents = useApi(() => labRequest<{state:string;reason:string;items:LabSnapshot['events']}>('inventory/events'))
+  const model = useApi(api.predictionStatus)
+  const [clientId, setClientId] = useState('')
+  const [offset, setOffset] = useState(0)
+  const [receipt, setReceipt] = useState<AttackReplay | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const selected = clients.data?.items.find(client => client.id === clientId)
+  async function replay() {
+    setBusy(true)
+    setReceipt(null)
+    setError('')
+    try {
+      setReceipt(await api.replayAttack(clientId, offset))
+      setOffset(offset + 1)
+    } catch (cause) {
+      setError(describeError(cause))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <div className="space-y-4">
+    <PageHeader title="Security Monitoring"
+      actions={<Button disabled={busy} onClick={() => {clients.reload(); model.reload(); labEvents.reload()}}>Refresh</Button>} />
+    <Card><CardHeader title="Client attack replay" />
+      <CardBody className="space-y-4">
+        <Field label="Federated client" htmlFor="replay-client"><Select id="replay-client" disabled={busy} value={clientId} onChange={event => {
+          setClientId(event.target.value); setOffset(0); setReceipt(null); setError('')
+        }}>
+          <option value="">Select a client</option>
+          {clients.data?.items.map(client => <option key={client.id} value={client.id}>{client.name} · {client.runtime_connected ? 'Connected' : 'Disconnected'}</option>)}
+        </Select></Field>
+        {selected && !selected.runtime_connected && <p>Enable this worker under Federated Clients, then refresh.</p>}
+        {(clients.error || model.error || (model.data && !model.data.available)) && <Alert tone="warning">{clients.error || model.error || model.data?.reason}</Alert>}
+        <Button disabled={busy || !selected?.runtime_connected || !model.data?.available || !!clients.error || !!model.error} onClick={replay}>{busy ? 'Replaying…' : 'Replay attack sample'}</Button>
+        {error && <Alert tone="danger">{error}</Alert>}
+      </CardBody></Card>
+    {receipt && <Card><CardHeader title={receipt.label === 1 ? 'Attack detected' : 'Attack missed'} description={receipt.client_name + ' · held-out CSV row ' + receipt.csv_row + ' · actual label: Attack'} />
+      <CardBody className="space-y-3 text-sm" ><p className="text-2xl font-semibold text-ink">{(100 * receipt.prediction).toFixed(2)}% attack probability</p>
+        <p>Transmission confirmed · worker PID {receipt.worker_pid} sent {receipt.feature_count} features to the central prediction service.</p>
+        <p className="break-all">Scored by model {receipt.version}. This replay performed inference only. Training updates are reported in Overview and Experiment History.</p>
+      </CardBody></Card>}
+    <EventHistory clientId={clientId} />
+    <Card><CardHeader title="SDN lab detections" description={labEvents.error ?? labEvents.data?.reason}/>
+      <CardBody>{labEvents.data?.items.length ? labEvents.data.items.map((event,i)=><p key={i} className="break-all py-1">
+        {new Date(event.ts*1000).toLocaleString()} · {event.host} · {event.kind} · {event.result.label?'Attack':'Benign'} · {(event.result.prediction*100).toFixed(2)}% attack probability · model {event.result.version}
+      </p>):<p>No recorded predictions for the current lab.</p>}</CardBody></Card>
+  </div>
 }

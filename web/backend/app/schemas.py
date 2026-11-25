@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, field_validator
 
 from .enums import ClientStatus, DatasetType, ExperimentStatus, JobStatus, ValidationStatus
 
@@ -181,6 +181,9 @@ class TrainingRequest(BaseModel):
     threshold: int | None = Field(default=None, ge=1, le=12)
     require_encryption: bool = False
     max_rows: int | None = Field(default=None, ge=1)
+    client_ids: list[str] = Field(default_factory=list, max_length=12)
+    initialize_from_active: bool = False
+    auto_deploy: bool = False
 
 
 class PaperSuiteRequest(BaseModel):
@@ -246,6 +249,8 @@ class ClientUpdate(BaseModel):
 
 
 class ClientResponse(ORMModel):
+    runtime_connected: bool = False
+    worker_pid: int | None = None
     id: str
     name: str
     status: ClientStatus
@@ -274,7 +279,7 @@ class PredictionStatusResponse(BaseModel):
 
 
 class PredictionRequest(BaseModel):
-    features: list[float] = Field(min_length=1, max_length=4096)
+    features: list[StrictFloat] = Field(min_length=1, max_length=4096)
 
 
 class EncryptionStatusResponse(BaseModel):
@@ -289,6 +294,7 @@ class EncryptionStatusResponse(BaseModel):
 
 
 class SDNStatusResponse(BaseModel):
+    state: str = "unavailable"
     available: bool
     reason: str = ""
     mode: str | None = None

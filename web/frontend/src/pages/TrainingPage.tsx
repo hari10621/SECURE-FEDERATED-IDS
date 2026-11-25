@@ -1,3 +1,5 @@
+import {CentralConsole} from './CentralModelPage'
+import { PolicyPanel } from '../components/AutomaticRetraining'
 import { Cpu, Lock, Play, Plus, RefreshCw, Square } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -51,7 +53,11 @@ export function TrainingPage() {
   const [name, setName] = useState('')
   const [datasetId, setDatasetId] = useState('')
   const [clientCount, setClientCount] = useState(4)
-  const [paperSchedule, setPaperSchedule] = useState(false)
+  const [schedule, setSchedule] = useState('short')
+  const [clientIds, setClientIds] = useState<string[]>([])
+  const [warm, setWarm] = useState(false)
+  const registered = useApi(() => api.listClients({limit: 100}), [])
+  const activeModel = useApi(api.predictionStatus, [])
   const [creating, setCreating] = useState(false)
   const [action, setAction] = useState<'simulate' | 'train' | 'cancel' | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -150,7 +156,7 @@ export function TrainingPage() {
     setActionError(null)
     setNotice(null)
     try {
-      const started = await api.trainExperiment(selectedId, { rounds: paperSchedule ? 15 : 1, local_epochs: paperSchedule ? 5 : 1 })
+      const started = await api.trainExperiment(selectedId, { rounds: schedule === "paper" ? 15 : schedule === "smoke" ? 3 : 1, local_epochs: schedule === "paper" ? 5 : 1, client_ids: clientIds, initialize_from_active: warm, auto_deploy: false })
       setJob(started)
       setNotice('Federated training job queued. Progress updates automatically.')
       status.reload()
@@ -270,9 +276,7 @@ export function TrainingPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Operations"
         title="Federated Training"
-        description="Create experiments, run plaintext simulation or GRU training, and inspect results. Encrypted execution is admitted only when the backend reports TenSEAL CKKS available."
         actions={
           <Button
             variant="secondary"
@@ -290,11 +294,12 @@ export function TrainingPage() {
         }
       />
 
+      <CentralConsole mode="rounds"/>
+      <PolicyPanel />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
         <Card>
           <CardHeader
             title="Create an experiment"
-            description="Only validated datasets with the 48-feature research schema are offered."
           />
           <CardBody>
             <form className="space-y-4" onSubmit={handleCreate}>
@@ -470,10 +475,28 @@ export function TrainingPage() {
               />
             </div>
 
+            <fieldset className="space-y-2 text-sm text-muted">
+              <legend className="text-ink">Participating clients</legend>
+              <p>Select {selectedExperiment?.client_count} connected workers, or leave empty for temporary local workers.</p>
+              {(registered.data?.items ?? []).filter(c => c.runtime_connected).map(c =>
+                <label className="block" key={c.id}><input type="checkbox" checked={clientIds.includes(c.id)}
+                  onChange={e => setClientIds(e.target.checked ? [...clientIds,c.id] : clientIds.filter(id => id !== c.id))}/> {c.name} · PID {c.worker_pid}</label>)}
+              <button type="button" className="underline" onClick={registered.reload}>Refresh clients</button>
+            </fieldset>
+            <label className="block text-sm"><input type="checkbox" checked={warm} onChange={e => setWarm(e.target.checked)}/> Initialize from admitted global model (same clean split and scaler)</label>
+            {typeof result?.artifact?.version === 'string' && <Button variant="secondary" onClick={async () => {
+              try {
+                const deployed = await api.deploy(String(result.artifact?.version))
+                setNotice(`Deployed global model ${deployed.version}`)
+                activeModel.reload()
+              } catch (cause) { setActionError(describeError(cause)) }
+            }}>Deploy Global Model</Button>}
+            {activeModel.data?.version && <p className="text-xs text-muted">Active version {activeModel.data.version}</p>}
             <Field label="GRU training schedule" htmlFor="gru-schedule">
-              <Select id="gru-schedule" value={paperSchedule ? 'paper' : 'short'}
-                onChange={(event) => setPaperSchedule(event.target.value === 'paper')}>
+              <Select id="gru-schedule" value={schedule}
+                onChange={(event) => setSchedule(event.target.value)}>
                 <option value="short">Quick check (1 round, 1 local epoch)</option>
+                <option value="smoke">Verification (3 rounds, 1 local epoch)</option>
                 <option value="paper">Paper schedule (15 rounds, 5 local epochs)</option>
               </Select>
             </Field>
@@ -501,7 +524,7 @@ export function TrainingPage() {
                 onClick={handleTrain}
                 icon={<Cpu className="size-4" aria-hidden="true" />}
               >
-                Run GRU smoke training
+                Train Global Model
               </Button>
               <Button
                 variant="secondary"
@@ -630,16 +653,7 @@ function ExperimentResult({ result }: { result: FederatedResult }) {
 
   return (
     <div className="space-y-4">
-      <Alert
-        tone={result.encrypted ? 'success' : 'warning'}
-        title={result.encrypted ? 'Encrypted result reported' : 'Plaintext result — not encrypted federated learning'}
-      >
-        Mode: {humanize(result.mode)} · encrypted: {String(Boolean(result.encrypted))} · parity:{' '}
-        {result.parity ?? 'unverified'}.{' '}
-        {result.encrypted
-          ? 'TenSEAL CKKS encryption, homomorphic aggregation, and client-side decryption executed for this run. Metric parity with the paper is still unverified.'
-          : 'No CKKS encryption was performed. This is not a legacy-parity claim.'}
-      </Alert>
+      <StatusBadge tone="info" label={result.encrypted ? "CKKS aggregation" : "Plaintext aggregation"} />
 
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
         <StatusBadge

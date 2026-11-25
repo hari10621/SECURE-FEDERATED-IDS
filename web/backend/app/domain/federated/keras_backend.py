@@ -110,7 +110,8 @@ class KerasGRUBackend(TrainingBackend):
             .shuffle(len(rows), seed=seed, reshuffle_each_iteration=True)
             .batch(batch_size)
         )
-        model.fit(dataset, epochs=epochs, verbose=0)
+        history = model.fit(dataset, epochs=epochs, verbose=0)
+        self.local_loss = float(history.history["loss"][-1])
         return flatten_gru_weights(model.get_weights(), width)
 
     def predict(

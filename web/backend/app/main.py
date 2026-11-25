@@ -16,7 +16,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api import clients, datasets, experiments, health, ips, jobs, predictions, metrics
+from .services.central import CentralModels
+from .api import central
+from .services.automatic import AutomaticRetraining
+from .api import automation, sdn, clients, datasets, experiments, health, ips, jobs, predictions, metrics
 from .config import Settings
 from .db import Database
 from .errors import AppError
@@ -102,12 +105,13 @@ def create_app(
         experiments_service = ExperimentService(db, datasets_service)
         experiments_service.recover_interrupted()
         clients_service = ClientService(db)
+        clients_service.restore_enabled()
         models_service = ModelService(settings, paths)
-        sdn_service = SDNService()
+        sdn_service = SDNService(paths)
         adapter = ResearchAdapter(settings, paths, security)
         simulation_service = SimulationService(settings, datasets_service)
         training_service = TrainingService(
-            settings, datasets_service, paths, encryption=encryption
+            settings, datasets_service, paths, encryption=encryption, clients=clients_service, models=models_service
         )
         handlers = dict(application.state.job_handlers)
         job_manager = JobManager(db, jobs_service, handlers, settings.job_workers)
@@ -157,16 +161,29 @@ def create_app(
         application.state.simulation = simulation_service
         application.state.training = training_service
         application.state.federated = federated
+        automatic = AutomaticRetraining(application.state)
+        application.state.automatic = automatic
+        models_service.automatic = automatic
+        sdn_service.automatic = automatic
+        application.state.central = CentralModels(application.state)
+        automatic.worker.start()
         logger.info("SecureFed-IDS backend started in %s mode", settings.environment)
         try:
             yield
         finally:
+            automatic.stop.set()
+            automatic.wake.set()
+            automatic.worker.join()
             job_manager.shutdown()
+            clients_service.close()
             db.dispose()
             logger.info("SecureFed-IDS backend stopped")
 
     app.router.lifespan_context = lifespan
     app.include_router(health.router, prefix=settings.api_prefix)
+    app.include_router(central.router,prefix=settings.api_prefix)
+    app.include_router(automation.router,prefix=settings.api_prefix)
+    app.include_router(sdn.router, prefix=settings.api_prefix)
     app.include_router(ips.router, prefix=settings.api_prefix)
     app.include_router(datasets.router, prefix=settings.api_prefix)
     app.include_router(experiments.router, prefix=settings.api_prefix)

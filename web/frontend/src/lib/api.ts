@@ -1,5 +1,7 @@
 import { loadApiConfig } from './config'
 import type {
+  LabelledSample,
+  AttackReplay,
   ClientListResponse,
   ClientTutorialJob,
   ClientResponse,
@@ -151,12 +153,19 @@ export interface UploadDatasetInput {
 }
 
 export const api = {
+  replayAttack: (clientId: string, offset: number) =>
+    apiRequest<AttackReplay>(`/api/v1/clients/${encodeURIComponent(clientId)}/attack-replay${query({offset})}`, {method: 'POST', timeoutMs: 120000}),
   latestTutorial: () => apiRequest<ClientTutorialJob | null>('/api/v1/jobs/client-tutorial/latest'),
   startTutorial: () => apiRequest<ClientTutorialJob>('/api/v1/jobs/client-tutorial', { method: 'POST' }),
   health: () => apiRequest<HealthResponse>('/api/v1/health'),
   version: () => apiRequest<VersionResponse>('/api/v1/version'),
   encryptionStatus: () => apiRequest<EncryptionStatusResponse>('/api/v1/encryption/status'),
   sdnStatus: () => apiRequest<SdnStatusResponse>('/api/v1/sdn/status'),
+  reloadModel: () => apiRequest<PredictionStatusResponse>('/api/v1/predictions/reload', { method: 'POST' }),
+  versions: () => apiRequest<string[]>('/api/v1/predictions/versions'),
+  deploy: (version: string) => apiRequest<PredictionStatusResponse>(`/api/v1/predictions/versions/${version}/deploy`, {method: 'POST'}),
+  sample: (id: string, label: number, partition: string, offset: number, type?: string) =>
+    apiRequest<LabelledSample>(`/api/v1/datasets/${id}/sample${query({label, partition, offset, attack_type: type})}`),
   predictionStatus: () =>
     apiRequest<PredictionStatusResponse>('/api/v1/predictions/status'),
 
@@ -245,5 +254,5 @@ export const api = {
     apiRequest<ClientStatusResponse>(`/api/v1/clients/${id}/status`),
 
   predict: (features: number[]) =>
-    apiRequest<{ prediction: number; label: number }>('/api/v1/predictions', { method: 'POST', body: { features } }),
+    apiRequest<{ prediction: number; label: number; confidence: number; class_name: string; version: string }>('/api/v1/predictions', { method: 'POST', body: { features } }),
 }

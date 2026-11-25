@@ -1,5 +1,7 @@
+import {CentralConsole} from './CentralModelPage'
+import { OrganizationForm } from '../components/AutomaticRetraining'
 import { Plus, RefreshCw } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Alert } from '../components/ui/Alert'
 import { Button } from '../components/ui/Button'
 import { Card, CardBody, CardHeader } from '../components/ui/Card'
@@ -15,6 +17,11 @@ import type { ClientResponse } from '../lib/types'
 
 export function ClientsPage() {
   const clients = useApi(() => api.listClients({ limit: 100 }), [])
+  const refreshClients = clients.reload
+  useEffect(() => {
+    const timer = window.setInterval(refreshClients, 5000)
+    return () => window.clearInterval(timer)
+  }, [refreshClients])
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -109,7 +116,7 @@ export function ClientsPage() {
     {
       key: 'status',
       header: 'Status',
-      render: (row) => <StatusBadge status={row.status} />,
+      render: (row) => <div><StatusBadge status={row.status} /><p>{row.runtime_connected ? `Connected · PID ${row.worker_pid}` : "Disconnected"}</p></div>,
     },
     {
       key: 'config',
@@ -138,7 +145,7 @@ export function ClientsPage() {
               variant="secondary"
               size="sm"
               loading={busyId === row.id}
-              disabled={isEnabled}
+              disabled={row.runtime_connected}
               onClick={() => handleEnable(row)}
             >
               Enable
@@ -169,9 +176,7 @@ export function ClientsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Operations"
         title="Federated Clients"
-        description="Manage local client configuration records."
         actions={
           <Button
             variant="secondary"
@@ -185,14 +190,15 @@ export function ClientsPage() {
       />
 
       <Alert tone="info" title="Client runtime" className="mb-4">
-        Experiments start their own local workers using the client count selected on the Training page.
+        Enable a client to start its local Python worker. Select the connected client on Federated Training to assign its shard.
       </Alert>
 
+      <CentralConsole mode="clients"/>
+      <OrganizationForm />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
         <Card>
           <CardHeader
             title="Create a client record"
-            description="Use a stable local name. The backend assigns the immutable client ID."
           />
           <CardBody>
             <form className="space-y-4" onSubmit={handleCreate}>
@@ -236,7 +242,7 @@ export function ClientsPage() {
           ) : (clients.data?.items.length ?? 0) === 0 ? (
             <EmptyState
               title="No client records"
-              description="Create a configuration record to pre-register a future federated client."
+              description="Create a client, then enable its local training worker."
             />
           ) : (
             <DataTable

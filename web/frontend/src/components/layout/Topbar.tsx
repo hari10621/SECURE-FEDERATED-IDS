@@ -1,3 +1,4 @@
+import { NotificationBell } from '../AutomaticRetraining'
 import { Menu } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
@@ -93,13 +94,11 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
         </button>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-ink">{currentTitle(location.pathname)}</p>
-          <p className="hidden truncate text-[11px] text-faint sm:block">
-            Local research environment · no production claims
-          </p>
+          <p className="truncate text-sm font-semibold text-ink lg:hidden">{currentTitle(location.pathname)}</p>
         </div>
 
         <div className="flex items-center gap-2">
+          <NotificationBell />
           {connection === 'checking' ? (
             <StatusPill tone="neutral" label="Checking API" detail="Contacting the local backend." />
           ) : connection === 'online' ? (
@@ -115,15 +114,6 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
               detail="The backend is unreachable. Start uvicorn and check Settings."
             />
           )}
-          {health ? (
-            <span className="hidden sm:inline-flex">
-              <StatusPill
-                tone={health.encryption === 'available' ? 'success' : 'warning'}
-                label={health.encryption === 'available' ? 'CKKS available' : 'CKKS unavailable'}
-                detail="Reported by /api/v1/encryption/status."
-              />
-            </span>
-          ) : null}
         </div>
       </div>
     </header>

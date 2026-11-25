@@ -15,6 +15,7 @@ from fastapi import UploadFile
 from sqlalchemy import func, select
 
 from ..config import Settings
+from ..domain.dataset import load_csv_dataset, split_indices
 from ..db import Database
 from ..enums import DatasetType, ValidationStatus
 from ..errors import InputValidationError, NotFoundError, PayloadTooLargeError
@@ -110,7 +111,7 @@ def validate_csv_file(
         else:
             label_index = header.index(selected_label)
 
-        feature_indices = [i for i in range(len(header)) if i != label_index] if label_index >= 0 else []
+        feature_indices = [i for i in range(len(header)) if i != label_index and header[i] != "attack_type"] if label_index >= 0 else []
         feature_count = len(feature_indices)
         if feature_count == 0:
             errors.append("no feature columns remain after selecting the label column")
@@ -191,6 +192,42 @@ def validate_csv_file(
 
 
 class DatasetService:
+    def source_id(self, original_id, sha256):
+        """Allow a re-uploaded, byte-identical source CSV for an archived model."""
+        with self.db.session() as session:
+            if session.get(Dataset,original_id):
+                return original_id
+            replacement = session.scalar(select(Dataset.id).where(Dataset.sha256==sha256).order_by(Dataset.created_at.desc()))
+        if replacement is None:
+            raise NotFoundError("Upload the original training CSV to replay this deployed model.")
+        return replacement
+
+    def labelled_sample(self, dataset_id, label, partition, offset, attack_type, models):
+        dataset = self.get(dataset_id)
+        path = self.path_for(dataset)
+        if hashlib.sha256(path.read_bytes()).hexdigest() != dataset.sha256:
+            raise InputValidationError("Uploaded dataset checksum mismatch")
+        loaded = load_csv_dataset(path, label_column=dataset.label_column)
+        version = None
+        if partition == "train":
+            indices = split_indices(loaded.labels, test_size=0.3, seed=42, stratify=True).train
+        else:
+            manifest, (_, weights, prep, _) = models.current()
+            if weights["metadata"]["dataset_sha256"] != dataset.sha256 or prep["feature_names"] != loaded.feature_names:
+                raise InputValidationError("Select the active model's source dataset for held-out evaluation.")
+            indices = prep["prepared"]["split"]["train" if partition=="active_train" else "test"]
+            version = manifest.get("version")
+        matching = [i for i in indices if loaded.labels[i] == label]
+        types = sorted({loaded.attack_types[i] for i in matching if loaded.attack_types and loaded.attack_types[i]})
+        if attack_type:
+            matching = [i for i in matching if loaded.attack_types and loaded.attack_types[i] == attack_type]
+        if not matching:
+            raise InputValidationError("No labeled rows match this partition and category.")
+        i = matching[offset % len(matching)]
+        return dict(dataset_id=dataset_id, index=i, features=loaded.rows[i], actual=loaded.labels[i],
+                    attack_types=types, attack_type=loaded.attack_types[i] if loaded.attack_types else None,
+                    partition=partition, version=version)
+
     def __init__(
         self,
         db: Database,

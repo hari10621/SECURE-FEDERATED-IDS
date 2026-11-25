@@ -174,6 +174,9 @@ class FederatedHarness:
         final_weights_sink: WeightSink | None = None,
         client_factory: type[SimulatedClient] = SimulatedClient,
         client_ids: Sequence[str] | None = None,
+        starting_weights: Sequence[float] | None = None,
+        measure_baseline: bool = False,
+        assigned_shards: list[list[int]] | None = None,
         after_aggregate: Callable[[int, Sequence[float]], None] | None = None,
         mode: str = "plaintext_simulation",
         include_timing: bool = False,
@@ -190,6 +193,9 @@ class FederatedHarness:
         if len(self.client_ids) != config.num_clients or len(set(self.client_ids)) != config.num_clients:
             raise InputValidationError("Supply one unique ID per client shard.")
         self.after_aggregate = after_aggregate
+        self.starting_weights = starting_weights
+        self.measure_baseline = measure_baseline
+        self.assigned_shards = assigned_shards
         self.client_factory = client_factory
         self.mode = mode
         self.include_timing = include_timing
@@ -222,6 +228,8 @@ class FederatedHarness:
             num_clients=self.config.num_clients,
             seed=self.config.seed,
         )
+        if self.assigned_shards is not None:
+            shards = self.assigned_shards
         clients = [
             self.client_factory(
                 client_id=client_id,
@@ -245,7 +253,8 @@ class FederatedHarness:
         for client in clients:
             server.register_client(client.client_id, client.sample_count)
 
-        global_weights = self.backend.initial_weights(feature_count)
+        global_weights = list(self.starting_weights) if self.starting_weights is not None else self.backend.initial_weights(feature_count)
+        baseline = _evaluate(self.backend, global_weights, dataset.test_rows, dataset.test_labels)[0] if self.measure_baseline else None
         records: list[dict[str, Any]] = []
         last_digest = weight_digest(global_weights)
         final_metrics: dict[str, float | None] | None = None
@@ -277,6 +286,7 @@ class FederatedHarness:
 
             record: dict[str, Any] = {
                 "round": round_index,
+                "global_hash_before": last_digest,
                 "updates": [update.as_dict() for update in updates],
                 "scaling_factors": [float(value) for value in aggregation.scaling_factors],
                 "aggregate_digest": aggregation.aggregate_digest,
@@ -372,6 +382,7 @@ class FederatedHarness:
             "dataset": dataset.summary(),
             "rounds": records,
             "round_metrics": [record["metrics"] for record in records if record["metrics"]],
+            "baseline_metrics": baseline,
             "final_metrics": final_metrics,
             "final_metrics_note": evaluation_note,
             "aggregate_digest": last_digest,
@@ -400,7 +411,12 @@ class EncryptedFederatedHarness:
         final_weights_sink: WeightSink | None = None,
         context_hash: str | None = None,
         include_timing: bool = False,
+        client_factory=SimulatedClient, client_ids=None, assigned_shards=None, starting_weights=None,
     ) -> None:
+        self.client_factory = client_factory
+        self.client_ids = client_ids
+        self.assigned_shards = assigned_shards
+        self.starting_weights = starting_weights
         self.backend = backend
         self.config = config
         self.crypto = crypto
@@ -440,14 +456,16 @@ class EncryptedFederatedHarness:
             num_clients=self.config.num_clients,
             seed=self.config.seed,
         )
+        shards = self.assigned_shards if self.assigned_shards is not None else shards
+        identities = self.client_ids or [client_id_for(i+1) for i in range(len(shards))]
         clients = [
-            SimulatedClient(
-                client_id=client_id_for(position),
+            self.client_factory(
+                client_id=identity,
                 rows=[dataset.train_rows[index] for index in shard],
                 labels=[dataset.train_labels[index] for index in shard],
-                seed=derive_client_seed(self.config.seed, client_id_for(position)),
+                seed=derive_client_seed(self.config.seed, identity),
             )
-            for position, shard in enumerate(shards, start=1)
+            for identity, shard in zip(identities,shards)
         ]
 
         expected = self.backend.parameter_count(feature_count)
@@ -472,7 +490,8 @@ class EncryptedFederatedHarness:
         for client in clients:
             server.register_client(client.client_id, client.sample_count)
 
-        global_weights = self.backend.initial_weights(feature_count)
+        global_weights = list(self.starting_weights) if self.starting_weights is not None else self.backend.initial_weights(feature_count)
+        baseline = _evaluate(self.backend,global_weights,dataset.test_rows,dataset.test_labels)[0] if self.starting_weights is not None else None
         records: list[dict[str, Any]] = []
         last_digest = ""
         last_broadcast: BroadcastPackage | None = None
@@ -518,6 +537,7 @@ class EncryptedFederatedHarness:
                 "updates": [update.as_dict() for update in updates],
                 "scaling_factors": [float(value) for value in aggregation.scaling_factors],
                 "aggregate_digest": aggregation.aggregate_digest,
+                "global_hash_before": weight_digest(global_weights),
                 "chunk_count": len(aggregation.chunks),
                 "aggregate_ciphertext_bytes": aggregation.total_ciphertext_bytes,
                 "aborted": aggregation.aborted,
@@ -566,6 +586,7 @@ class EncryptedFederatedHarness:
                 float(global_value) + float(delta_value)
                 for global_value, delta_value in zip(global_weights, delta)
             ]
+            record["global_hash_after"] = weight_digest(global_weights)
             last_digest = aggregation.aggregate_digest
             last_broadcast = broadcast
             final_metrics, evaluation_note = _evaluate(
@@ -684,6 +705,7 @@ class EncryptedFederatedHarness:
             "dataset": dataset.summary(),
             "rounds": records,
             "round_metrics": [record["metrics"] for record in records if record["metrics"]],
+            "baseline_metrics":baseline,
             "final_metrics": final_metrics,
             "final_metrics_note": evaluation_note,
             "aggregate_digest": last_digest,

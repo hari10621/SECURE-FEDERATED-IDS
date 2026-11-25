@@ -12,12 +12,13 @@ function renderSidebar(path = '/') {
 }
 
 describe('Sidebar', () => {
-  it('renders all twelve configured pages', () => {
+  it('renders the eleven current dashboard pages', () => {
     renderSidebar()
     const nav = screen.getByRole('navigation', { name: 'Primary' })
-    expect(within(nav).getAllByRole('link')).toHaveLength(12)
+    expect(within(nav).getAllByRole('link')).toHaveLength(11)
     expect(within(nav).getByText('Federated Training')).toBeInTheDocument()
-    expect(within(nav).getByText('Homomorphic Encryption')).toBeInTheDocument()
+    expect(within(nav).queryByText('Homomorphic Encryption')).not.toBeInTheDocument()
+    expect(within(nav).queryByText('IPS & Prevention')).not.toBeInTheDocument()
     expect(within(nav).getByText('Settings')).toBeInTheDocument()
   })
 

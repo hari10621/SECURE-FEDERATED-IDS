@@ -1,4 +1,4 @@
-import { KeyRound, RotateCcw, Save, Wifi } from 'lucide-react'
+import { RotateCcw, Save, Wifi } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Alert } from '../components/ui/Alert'
 import { Button } from '../components/ui/Button'
@@ -30,7 +30,7 @@ export function SettingsPage() {
       const saved = saveApiConfig({ baseUrl, token })
       setBaseUrl(saved.baseUrl)
       setToken(saved.token)
-      setNotice('API settings saved in this browser. The client reads them before each request.')
+      setNotice('API settings saved.')
       return true
     } catch (cause) {
       setError(describeError(cause))
@@ -74,16 +74,13 @@ export function SettingsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="System"
         title="Settings"
-        description="Configure the local API connection. These values live in browser storage only and are never embedded in the build."
       />
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+      <div className="max-w-2xl">
         <Card>
           <CardHeader
             title="API connection"
-            description="Use the backend origin without an /api/v1 suffix. The console appends API paths itself."
           />
           <CardBody>
             <form className="space-y-4" onSubmit={handleSave}>
@@ -91,7 +88,7 @@ export function SettingsPage() {
                 label="API base URL"
                 htmlFor="api-base-url"
                 required
-                hint={`Default: ${DEFAULT_BASE_URL}. Loopback is expected for local use.`}
+                hint={`Default: ${DEFAULT_BASE_URL}`}
               >
                 <TextInput
                   id="api-base-url"
@@ -105,7 +102,7 @@ export function SettingsPage() {
               <Field
                 label="Shared bearer token"
                 htmlFor="api-token"
-                hint="Optional. Stored in localStorage and sent only as the Authorization header. Leave blank when the backend has no token configured."
+                hint="Optional. Saved in this browser."
               >
                 <TextInput
                   id="api-token"
@@ -150,48 +147,7 @@ export function SettingsPage() {
           </CardBody>
         </Card>
 
-        <div className="space-y-4">
-          <Card>
-            <CardHeader title="Browser storage" />
-            <CardBody className="space-y-3 text-sm leading-6 text-muted">
-              <div className="flex items-start gap-3">
-                <KeyRound className="mt-0.5 size-4 shrink-0 text-cyan-glow" aria-hidden="true" />
-                <div>
-                  <p className="font-medium text-ink">Local only</p>
-                  <p className="mt-0.5">
-                    The base URL and optional token are stored under a single namespaced
-                    localStorage key. They are not included in source control or the build output.
-                  </p>
-                </div>
-              </div>
-              <p className="rounded-lg border border-line bg-navy-950/60 px-3 py-3 font-mono text-[11px] text-muted">
-                key: securefed.console.api.v1
-              </p>
-              <Alert tone="warning" title="Shared token scope">
-                A bearer token authenticates requests to this local backend. It is not a per-user
-                identity, and the console does not log it.
-              </Alert>
-            </CardBody>
-          </Card>
 
-          <Card>
-            <CardHeader title="Runtime expectations" />
-            <CardBody className="space-y-2 text-xs leading-5 text-muted">
-              <p>
-                The browser never loads TensorFlow, NumPy, Pandas, or CKKS libraries. Training and
-                simulation jobs run in the Python backend.
-              </p>
-              <p>
-                If the API is offline, start uvicorn in web/backend and verify the health endpoint
-                before saving a new URL.
-              </p>
-              <p>
-                The console does not enable demo or sample data by default. Every metric, status,
-                and record shown comes from the backend.
-              </p>
-            </CardBody>
-          </Card>
-        </div>
       </div>
     </div>
   )

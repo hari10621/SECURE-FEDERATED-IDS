@@ -33,6 +33,7 @@ class LoadedDataset:
     feature_names: list[str]
     rows: list[list[float]]
     labels: list[int]
+    attack_types: list[str] = field(default_factory=list)
 
     @property
     def feature_count(self) -> int:
@@ -136,7 +137,9 @@ def load_csv_dataset(
         if selected_label not in header:
             raise InputValidationError(f"label column not found: {selected_label!r}")
         label_index = header.index(selected_label)
-        feature_indices = [index for index in range(len(header)) if index != label_index]
+        type_index = header.index("attack_type") if "attack_type" in header and selected_label != "attack_type" else -1
+        attack_types = []
+        feature_indices = [index for index in range(len(header)) if index not in (label_index, type_index)]
         feature_names = [header[index] for index in feature_indices]
 
         rows: list[list[float]] = []
@@ -168,6 +171,8 @@ def load_csv_dataset(
                 raise InputValidationError(f"line {line_number}: non-numeric label") from exc
             if not math.isfinite(label_value) or label_value not in (0.0, 1.0):
                 raise InputValidationError(f"line {line_number}: label must be binary 0 or 1")
+            if type_index >= 0:
+                attack_types.append(row[type_index].strip())
             rows.append(features)
             labels.append(int(label_value))
             if max_rows is not None and len(rows) > max_rows:
@@ -175,7 +180,7 @@ def load_csv_dataset(
 
     if not rows:
         raise InputValidationError("CSV contains no data rows")
-    return LoadedDataset(feature_names=feature_names, rows=rows, labels=labels)
+    return LoadedDataset(feature_names=feature_names, rows=rows, labels=labels, attack_types=attack_types)
 
 
 def fit_scaler(rows: Sequence[Sequence[float]]) -> ScalerStats:

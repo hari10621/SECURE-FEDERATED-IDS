@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 
 from sqlalchemy.exc import IntegrityError
 
 from ..errors import ConflictError
+from ..services.model_service import ModelService
 from ..enums import DatasetType
 from ..schemas import (
     DatasetListResponse,
@@ -16,7 +17,7 @@ from ..schemas import (
     DatasetValidationReport,
 )
 from ..services.dataset_service import DatasetService
-from .deps import get_datasets, require_auth
+from .deps import get_datasets, get_models, require_auth
 
 router = APIRouter(
     prefix="/datasets",
@@ -97,3 +98,10 @@ def revalidate_dataset(
 ) -> DatasetValidationReport:
     _, report = service.revalidate(dataset_id)
     return DatasetValidationReport(**report.as_dict())
+
+@router.get("/{dataset_id}/sample")
+def labelled_sample(dataset_id: str, label: Annotated[int, Query(ge=0, le=1)],
+                    partition: Literal["train", "test"] = "test",
+                    offset: Annotated[int, Query(ge=0)] = 0, attack_type: str | None = None,
+                    service: DatasetService = Depends(get_datasets), models: ModelService = Depends(get_models)):
+    return service.labelled_sample(dataset_id, label, partition, offset, attack_type, models)
