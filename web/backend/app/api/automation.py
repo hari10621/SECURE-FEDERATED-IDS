@@ -201,3 +201,33 @@ def retry(rid: str, s=Depends(service)):
         db.execute("UPDATE auto_run SET state='retried' WHERE id=?", (rid,))
     s.wake.set()
     return {"ok": True}
+
+@router.get("/audit")
+def audit_entries(client:str="",organization:str="",version:str="",category:str="",severity:str="",
+                  since:float=0,until:float=1e12,offset:Annotated[int,Query(ge=0)]=0,s=Depends(service)):
+    filters=["ts>=?","ts<=?"]
+    args=[since,until]
+    for col,value in (("client",client),("organization",organization),("version",version),("category",category),("severity",severity)):
+        if value:
+            filters.append(col+"=?")
+            args.append(value)
+    with s.db() as db:
+        return [dict(r) for r in db.execute("SELECT * FROM security_audit WHERE "+" AND ".join(filters)+" ORDER BY ts DESC,id LIMIT 200 OFFSET ?",[*args,offset])]
+
+
+class Rejection(BaseModel):
+    evidence:str=Field(min_length=1,max_length=500)
+
+@router.post("/events/{eid}/reject")
+def reject(eid:str,review:Rejection,s=Depends(service)):
+    from ..services.security_audit import audit
+    from ..services.automatic import notice
+    if not review.evidence.strip():raise ConflictError("Enter the independent reason for rejection.")
+    with s.db() as db:
+        db.execute("BEGIN IMMEDIATE")
+        e=db.execute("SELECT * FROM auto_event WHERE id=?",(eid,)).fetchone()
+        if not e or e["status"] not in ("verified","unreviewed"):raise ConflictError("Only unassigned samples can be rejected.")
+        db.execute("UPDATE auto_event SET status='excluded',evidence=?,label=NULL WHERE id=?",(review.evidence.strip(),eid))
+        audit(db,"sample rejected",client=e["client"],organization=e["organization"],event=eid,version=e["version"])
+        notice(db,"Sample rejected · "+eid)
+    return {"status":"excluded"}

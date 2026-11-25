@@ -1,3 +1,4 @@
+import { WindowsNetwork } from './WindowsNetwork'
 import { useEffect, useState } from 'react'
 import { Background, Controls, ReactFlow, type Node } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -64,7 +65,7 @@ function Topology({
     ...s.hosts.map((h, i) =>
       node(
         h.name,
-        h.name + ' Â· ' + h.ip + (h.client ? ' Â· FL' : ''),
+        h.name + ' · ' + h.ip + (h.client ? ' · FL' : ''),
         460,
         i * 70,
         h.alerts > 0,
@@ -106,6 +107,11 @@ function Topology({
 }
 
 export function SdnPage() {
+  const [engine,setEngine]=useState('Windows Native Simulation')
+  return <div className="space-y-4"><label className="block max-w-md">Network engine<Select value={engine} onChange={e=>setEngine(e.target.value)}>{['Windows Native Simulation','Windows Live Traffic Capture','Linux Mininet'].map(x=><option key={x}>{x}</option>)}</Select></label>{engine==='Linux Mininet'?<MininetPage/>:<WindowsNetwork key={engine} live={engine==='Windows Live Traffic Capture'}/>}</div>
+}
+
+function MininetPage() {
   const network = useApi(snapshot)
   const clients = useApi(() => api.listClients({ limit: 200 }))
   const model = useApi(api.predictionStatus)
@@ -185,7 +191,7 @@ export function SdnPage() {
     <div className="space-y-4">
       <PageHeader
         title="SDN Network"
-        description={network.error ?? s?.reason ?? 'Checking lab agentâ€¦'}
+        description={network.error ?? s?.reason ?? 'Checking lab agent…'}
         actions={<Button onClick={refresh}>Refresh topology</Button>}
       />
       <div className="grid gap-2 sm:grid-cols-4">
@@ -194,7 +200,7 @@ export function SdnPage() {
             <CardBody>
               <small>{name}</small>
               <p className="text-xl text-ink">
-                {i > 0 && (!s?.running || network.error) ? 'â€”' : (value ?? 'â€”')}
+                {i > 0 && (!s?.running || network.error) ? '—' : (value ?? '—')}
               </p>
             </CardBody>
           </Card>
@@ -302,7 +308,7 @@ export function SdnPage() {
             )}
             {hostEvents.slice(0, 5).map((event, i) => (
               <p className="px-3 pb-2" key={i}>
-                {event.kind} Â· {event.result.label ? 'Attack' : 'Benign'} Â·{' '}
+                {event.kind} · {event.result.label ? 'Attack' : 'Benign'} ·{' '}
                 {(100 * event.result.prediction).toFixed(2)}% attack probability
               </p>
             ))}
@@ -362,7 +368,7 @@ export function SdnPage() {
                           {h.client &&
                           model.data?.participants?.includes(h.client)
                             ? model.data.version
-                            : 'â€”'}
+                            : '—'}
                         </td>
                         <td>{h.alerts}</td>
                       </tr>
@@ -443,9 +449,9 @@ export function SdnPage() {
                       return (
                         'Recorded attack row ' +
                         r.csv_row +
-                        ' Â· ' +
+                        ' · ' +
                         (r.label ? 'Detected' : 'Missed') +
-                        ' Â· ' +
+                        ' · ' +
                         (100 * r.prediction).toFixed(2) +
                         '% attack probability'
                       )
@@ -495,7 +501,7 @@ export function SdnPage() {
                       return (
                         'Published ' +
                         r.rows +
-                        ' reviewed rows Â· dataset ' +
+                        ' reviewed rows · dataset ' +
                         r.dataset_id
                       )
                     })
@@ -507,7 +513,7 @@ export function SdnPage() {
               {capture && (
                 <p>
                   Observed IPv4 flows (up to 100):{' '}
-                  {capture.observed_flows.length} Â· Packets by IP protocol:{' '}
+                  {capture.observed_flows.length} · Packets by IP protocol:{' '}
                   {Object.entries(
                     capture.observed_flows.reduce<Record<number, number>>(
                       (sum, f) => {
@@ -530,7 +536,7 @@ export function SdnPage() {
               {samples.data?.map((r) => (
                 <details key={r.id}>
                   <summary>
-                    {r.id} Â·{' '}
+                    {r.id} ·{' '}
                     {r.label === null
                       ? 'Awaiting review'
                       : r.label
@@ -590,7 +596,7 @@ export function SdnPage() {
               {s.switches.map((sw) => (
                 <details key={sw.name}>
                   <summary>
-                    {sw.name} Â· {sw.dpid} Â·{' '}
+                    {sw.name} · {sw.dpid} ·{' '}
                     {sw.connected ? 'Connected' : 'Disconnected'}
                   </summary>
                   <pre className="overflow-auto">

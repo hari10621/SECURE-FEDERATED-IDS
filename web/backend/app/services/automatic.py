@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 import secrets
 import threading
 import time
@@ -17,16 +18,20 @@ from ..schemas import ExperimentCreate, TrainingRequest
 log = logging.getLogger(__name__)
 
 
+from .security_audit import audit
+
 class Policy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = False
     minimum: int = Field(default=3, ge=1, le=1000)
+    minimum_new_samples: int = Field(default=1, ge=1, le=1000)
+    minimum_clients: int = Field(default=2, ge=2, le=12)
     rounds: int = Field(default=1, ge=1, le=100)
     epochs: int = Field(default=1, ge=1, le=50)
     cooldown: int = Field(default=300, ge=0, le=604800)
     encrypted: bool = False
     auto_deploy: bool = False
-    minimum_accuracy_gain: float = Field(default=-1, ge=-1, le=1)
+    minimum_accuracy_gain: float = Field(default=0, ge=-1, le=1)
     minimum_f1: float = Field(default=0, ge=0, le=1)
     maximum_fpr: float = Field(default=1, ge=0, le=1)
     allowed_f1_drop: float = Field(default=0, ge=0, le=1)
@@ -62,7 +67,10 @@ class AutomaticRetraining:
     def migrate(self):
         with self.db() as db:
             db.executescript("""
+            CREATE TABLE IF NOT EXISTS security_audit(id TEXT PRIMARY KEY,ts REAL,category TEXT,severity TEXT,client TEXT,organization TEXT,version TEXT,job TEXT,event TEXT);
+            CREATE INDEX IF NOT EXISTS audit_time ON security_audit(ts);
             CREATE TABLE IF NOT EXISTS auto_migrations(version INTEGER PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS auto_review_time(event TEXT PRIMARY KEY,ts REAL);
             CREATE TABLE IF NOT EXISTS auto_policy(id INTEGER PRIMARY KEY, body TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS auto_notice(id INTEGER PRIMARY KEY, ts REAL,message TEXT,seen INTEGER DEFAULT 0);
             CREATE TABLE IF NOT EXISTS auto_event(
@@ -204,6 +212,9 @@ class AutomaticRetraining:
                 else "unreviewed",
             ),
         )
+        if prediction is not None:
+            category=("attack missed" if truth==1 and prediction==0 else "false positive" if truth==0 and prediction==1 else "attack detected" if prediction==1 else "sample scored")
+            audit(db,category,client=client,organization=organization,version=version,event=eid,severity="warning" if category in ("false positive","attack missed") else "high" if prediction==1 else "info")
         if prediction == 1:
             notice(
                 db, f"Intrusion detected · {organization or client} · {origin} · {eid}"
@@ -225,6 +236,7 @@ class AutomaticRetraining:
 
     def deployment(self, version):
         with self.db() as db:
+            audit(db,"model deployed",version=version,event=version)
             notice(db, "Model deployed · " + version)
             r = db.execute(
                 "SELECT id,state FROM auto_run WHERE candidate=?", (version,)
@@ -301,6 +313,8 @@ class AutomaticRetraining:
                 "UPDATE auto_event SET label=?, evidence=?, status=? WHERE id=?",
                 (label, evidence, status, eid),
             )
+            db.execute("INSERT OR REPLACE INTO auto_review_time VALUES(?,?)",(eid,time.time()))
+            audit(db,"sample verified",client=row["client"],organization=row["organization"],version=row["version"],event=eid)
             notice(db, f"Sample verified · {eid} · {'Attack' if label else 'Benign'}")
         self.wake.set()
 
@@ -310,6 +324,9 @@ class AutomaticRetraining:
             (state, detail, time.time(), rid),
         )
         db.execute("UPDATE auto_event SET status=? WHERE run=?", (state, rid))
+        if state=="failed":
+            run=db.execute("SELECT parent,job FROM auto_run WHERE id=?",(rid,)).fetchone()
+            audit(db,"retraining failed",version=run["parent"],job=run["job"],event=rid,severity="warning")
         notice(db, f"Automatic retraining {state} · {rid} · {detail}")
 
     def loop(self):
@@ -388,8 +405,12 @@ class AutomaticRetraining:
                     )
                 }
             online = [cid for cid in online if cid in members]
-        if len(online) < 2:
+        if len(online) < pol.minimum_clients:
             return
+        held_out = set()
+        if managed:
+            _, raw, reference = self.app.central.reference(managed)
+            held_out = {tuple(raw.rows[idx]) for idx in reference.split.test}
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             if self.policy(db) != pol:
@@ -406,10 +427,25 @@ class AutomaticRetraining:
             keys = set()
             ids = []
             for e in candidates:
+                try:
+                    vector = json.loads(e["features"] or "null")
+                    schema = json.loads(e["schema"] or "null")
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(vector,list) or len(vector)!=len(model["features"]) or not all(type(v) in (int,float) and math.isfinite(v) for v in vector):
+                    continue
+                if tuple(vector) in held_out:
+                    continue
+                if e["origin"] in ("simulation window","capture window"):
+                    engine=e["origin"].split()[0]
+                    if not managed or not db.execute(
+                        "SELECT 1 FROM native_dataset WHERE dataset=? AND engine=?", (prep["dataset_id"],engine)
+                    ).fetchone():
+                        continue
                 if (
                     e["sample_key"] in keys
                     or e["client"] not in online
-                    or json.loads(e["schema"]) != model["features"]
+                    or schema != model["features"]
                 ):
                     continue
                 if e["origin"] == "dataset training" and (
@@ -422,9 +458,9 @@ class AutomaticRetraining:
                     ids.append(e["client"])
                 events.append(e["id"])
                 keys.add(e["sample_key"])
-                if len(events) >= pol.minimum:
+                if len(events) >= max(pol.minimum,pol.minimum_new_samples):
                     break
-            if len(events) < pol.minimum:
+            if len(events) < max(pol.minimum,pol.minimum_new_samples):
                 return
             # Published live datasets retain their original worker ownership.
             owners = db.execute(
@@ -432,12 +468,12 @@ class AutomaticRetraining:
             ).fetchone()
             if owners:
                 required = set(json.loads(owners[0]))
-                if not required.issubset(online) or not set(ids).issubset(required):
+                if len(required)<pol.minimum_clients or not required.issubset(online) or not set(ids).issubset(required):
                     return
                 ids = sorted(required)
             else:
                 count = next(
-                    (n for n in (2, 3, 4, 8, 12) if n >= len(ids) and n <= len(online)),
+                    (n for n in (2, 3, 4, 8, 12) if n >= max(len(ids),pol.minimum_clients) and n <= len(online)),
                     None,
                 )
                 if count is None:
@@ -459,6 +495,10 @@ class AutomaticRetraining:
                 "UPDATE auto_event SET run=?,status='queued' WHERE id=?",
                 [(rid, e) for e in events],
             )
+            for eid in events:
+                selected=db.execute("SELECT * FROM auto_event WHERE id=?",(eid,)).fetchone()
+                for category in ("sample assigned for training","retraining triggered"):
+                    audit(db,category,client=selected["client"],organization=selected["organization"],version=model["version"],event=eid)
             notice(db, f"Retraining queued · {len(events)} verified attacks · {rid}")
         try:
             job = self.app.job_manager.submit(
@@ -708,5 +748,6 @@ class AutomaticRetraining:
                     "INSERT OR REPLACE INTO auto_ack VALUES(?,?,?,?,?,?)",
                     (rid, cid, m["version"], pid, digest, time.time()),
                 )
+                audit(db,"worker synchronized",client=cid,organization=self.app.clients.get(cid).config.get("organization"),version=m["version"],event=rid)
                 notice(db, f"Client synchronized · {cid} · {m['version']}")
                 db.commit()

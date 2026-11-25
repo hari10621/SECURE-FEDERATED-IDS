@@ -10,7 +10,8 @@ if (-not $env:SECUREFED_LAB_TOKEN -and (Test-Path -LiteralPath $labCredential)) 
     $env:SECUREFED_LAB_TOKEN = (Import-Clixml -LiteralPath $labCredential).GetNetworkCredential().Password
 }
 if (-not $env:SECUREFED_ENABLE_CKKS) { $env:SECUREFED_ENABLE_CKKS = 'true' }
-$backendUrl = 'http://127.0.0.1:8000'
+$apiPort = if ($env:SECUREFED_API_PORT) { [int]$env:SECUREFED_API_PORT } else { 8000 }
+$backendUrl = "http://127.0.0.1:$apiPort"
 $apiVersion = try { Invoke-RestMethod "$backendUrl/api/v1/version" -TimeoutSec 2 -ErrorAction Stop } catch { $null }
 if ($apiVersion.name -eq 'SecureFed-IDS API') {
     Write-Host "SecureFed-IDS backend is already running at $backendUrl"
@@ -27,7 +28,7 @@ if ($apiVersion.name -eq 'SecureFed-IDS API') {
     }
     Push-Location -LiteralPath $backendDir -ErrorAction Stop
     try {
-        & $backendPython -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+        & $backendPython -m uvicorn app.main:app --host 127.0.0.1 --port $apiPort
     } finally {
         Pop-Location
     }

@@ -1,10 +1,12 @@
 from typing import Literal
 import json
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import select
 from pydantic import BaseModel, ConfigDict, Field
 from ..enums import ClientStatus
 from ..errors import ConflictError, InputValidationError
-from ..models import Client
+from ..models import Client, Job, Experiment
+from ..services import version_evaluation
 from .deps import require_auth
 from .sdn import check_origin
 
@@ -86,7 +88,7 @@ def detail(mid: str, s=Depends(service)):
                     parent=v["parent"],
                     state=v["state"],
                     weight_hash=v["digest"],
-                    sha256=a["weights_sha256"],
+                    sha256=a.get("weights_sha256"),
                     ts=v["ts"],
                     experiment=v["experiment"],
                     validation=json.loads(v["metrics"]) if v["metrics"] else None,
@@ -95,7 +97,11 @@ def detail(mid: str, s=Depends(service)):
         updates = [
             dict(r)
             for r in db.execute(
-                "SELECT id,client,organization,base,count,duration,digest,local_hash,state,version,ts,base_hash,round_number FROM central_update WHERE model=? ORDER BY ts DESC",
+                """SELECT u.id,u.client,u.organization,u.base,u.count,u.duration,u.digest,
+                          u.local_hash,u.state,u.version,u.ts,u.base_hash,u.round_number,
+                          c.benign,c.attack
+                   FROM central_update u LEFT JOIN central_update_classes c ON c.id=u.id
+                   WHERE u.model=? ORDER BY u.ts DESC""",
                 (mid,),
             )
         ]
@@ -131,11 +137,71 @@ def detail(mid: str, s=Depends(service)):
                 (mid,),
             )
         ]
-        runs = [
-            dict(r)
-            for r in db.execute(
-                "SELECT id,state,events FROM auto_run WHERE parent IN (SELECT version FROM central_version WHERE model=?) ORDER BY ts DESC",
-                (mid,),
+        runs = []
+        for r in db.execute(
+            "SELECT * FROM auto_run WHERE parent IN (SELECT version FROM central_version WHERE model=?) ORDER BY ts DESC",
+            (mid,),
+        ):
+            events = [
+                dict(e)
+                for eid in json.loads(r["events"])
+                for e in db.execute(
+                    "SELECT e.id,e.client,e.organization,e.label,t.ts AS verified FROM auto_event e LEFT JOIN auto_review_time t ON t.event=e.id WHERE e.id=?",
+                    (eid,),
+                )
+            ]
+            job = s.app.jobs.get(r["job"]) if r["job"] else None
+            runs.append(
+                dict(
+                    id=r["id"],
+                    state=r["state"],
+                    detail=r["detail"],
+                    parent=r["parent"],
+                    candidate=r["candidate"],
+                    job=r["job"],
+                    experiment=r["experiment"],
+                    events=events,
+                    started=job.started_at if job else None,
+                    finished=job.finished_at if job else None,
+                    validation=json.loads(r["validation"]) if r["validation"] else None,
+                )
+            )
+    with s.app.jobs.db.session() as session:
+        durations = {
+            experiment: (finished - started).total_seconds()
+            for experiment, started, finished in session.execute(
+                select(Experiment.id, Experiment.started_at, Experiment.finished_at)
+                .where(Experiment.id.in_([v["experiment"] for v in versions if v["experiment"]]))
+            ) if started and finished
+        }
+        for version in versions:
+            version["training_seconds"] = durations.get(version["experiment"])
+        # An unfinished or failed round may never produce a version artifact.
+        pending_rounds = [
+            dict(
+                job=j.id,
+                base=j.payload["base"],
+                state=j.status,
+                progress=j.progress,
+                message=j.error or j.message,
+                created=j.created_at,
+            )
+            for j in session.scalars(
+                select(Job)
+                .where(
+                    Job.job_type == "central_round",
+                    Job.payload["model"].as_string() == mid,
+                    Job.status.in_(
+                        (
+                            "queued",
+                            "running",
+                            "failed",
+                            "cancellation_requested",
+                            "cancelled",
+                        )
+                    ),
+                )
+                .order_by(Job.created_at.desc())
             )
         ]
     return {
@@ -147,6 +213,7 @@ def detail(mid: str, s=Depends(service)):
         "contributions": updates,
         "acks": acks,
         "retraining": runs,
+        "round_jobs": pending_rounds,
     }
 
 
@@ -206,6 +273,33 @@ def rounds(mid: str, p: Round, s=Depends(service)):
     if p.encrypted and p.action != "fresh":
         raise InputValidationError("Select a fresh round for CKKS aggregation.")
     return s.queue(mid, p.model_dump())
+
+
+@router.get("/{mid}/evaluations")
+def evaluation_history(mid: str, s=Depends(service)):
+    return version_evaluation.history(s, mid)
+
+
+@router.post("/{mid}/versions/{vid}/evaluate-heldout")
+def heldout(mid: str, vid: str, s=Depends(service)):
+    try:
+        return version_evaluation.evaluate(s, mid, vid)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise InputValidationError(f"Cannot evaluate saved artifacts: {exc}") from exc
+
+
+@router.get("/{mid}/versions/{vid}/integrity")
+def integrity(mid: str, vid: str, s=Depends(service)):
+    v = s.row("SELECT * FROM central_version WHERE model=? AND version=?", (mid, vid))
+    try:
+        weights = s.weights(vid)  # loads the file and verifies its SHA-256
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise InputValidationError(f"Cannot verify saved artifact: {exc}") from exc
+    return {
+        "version": vid,
+        "artifact_verified": True,
+        "weight_matches": version_evaluation.weight_digest(weights) == v["digest"],
+    }
 
 
 @router.post("/{mid}/versions/{version}/{action}")

@@ -18,7 +18,7 @@ import { MetricCard } from '../components/ui/MetricCard'
 import { PageHeader } from '../components/ui/PageHeader'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { useApi } from '../hooks/useApi'
-import { api } from '../lib/api'
+import { api, apiRequest } from '../lib/api'
 import { formatDate, formatNumber } from '../lib/format'
 import type { ExperimentResponse } from '../lib/types'
 
@@ -27,6 +27,7 @@ export function OverviewPage() {
   const version = useApi(() => api.version(), [])
   const encryption = useApi(() => api.encryptionStatus(), [])
   const sdn = useApi(() => api.sdnStatus(), [])
+  const native = useApi(()=>apiRequest<{network:null|{state:string}}>('/api/v1/native-network'),[])
   const predictions = useApi(() => api.predictionStatus(), [])
   const datasets = useApi(() => api.listDatasets({ limit: 1 }), [])
   const experiments = useApi(() => api.listExperiments({ limit: 5 }), [])
@@ -111,6 +112,7 @@ export function OverviewPage() {
               jobs.reload()
               encryption.reload()
               sdn.reload()
+              native.reload()
               predictions.reload()
               clients.reload()
             }}
@@ -198,7 +200,14 @@ export function OverviewPage() {
               />
               <CapabilityRow
                 icon={<Network className="size-4" />}
-                label="SDN controller"
+                label="Windows network simulator"
+                status={native}
+                available={Boolean(native.data)}
+                reason={native.data?.network?.state ?? 'No virtual network created'}
+              />
+              <CapabilityRow
+                icon={<Network className="size-4" />}
+                label="Optional Mininet controller"
                 status={sdn}
                 available={sdn.data?.available}
                 reason={sdn.data?.reason}

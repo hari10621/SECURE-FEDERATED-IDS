@@ -1,5 +1,0 @@
-fastapi==0.164.0
-pydantic==2.14.3
-SQLAlchemy==2.1.9
-python-multipart==0.0.34
-uvicorn==0.54.0

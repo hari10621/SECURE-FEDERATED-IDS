@@ -15,12 +15,13 @@ from ..domain.dataset import apply_scaler, load_csv_dataset, preprocess
 from ..domain.federated.client import ClientUpdate, ciphertext_digest, weight_digest
 from ..domain.federated.keras_backend import KerasGRUBackend
 from ..domain.federated.server import FLServer
-from ..domain.metrics import compute_metrics
+from ..domain.metrics import compute_metrics, confusion_counts
 from ..domain.model import ARTIFACT_FORMAT, parameter_specs
 from ..enums import ExperimentStatus
 from ..errors import ConflictError, InputValidationError, UnavailableError
 from ..schemas import ExperimentCreate, TrainingRequest
 from .automatic import Policy, notice
+from .security_audit import audit
 
 
 class CentralModels:
@@ -30,6 +31,7 @@ class CentralModels:
         self.lock = threading.RLock()
         with self.db() as db:
             db.executescript("""
+            CREATE TABLE IF NOT EXISTS central_update_classes(id TEXT PRIMARY KEY,benign INTEGER,attack INTEGER);
             CREATE TABLE IF NOT EXISTS central_model(id TEXT PRIMARY KEY,name TEXT UNIQUE,reference TEXT,config TEXT,head TEXT,ts REAL);
             CREATE TABLE IF NOT EXISTS central_version(version TEXT PRIMARY KEY,model TEXT,number INTEGER,parent TEXT,state TEXT,artifact TEXT,digest TEXT,metrics TEXT,ts REAL,experiment TEXT,UNIQUE(model,number));
             CREATE TABLE IF NOT EXISTS central_member(client TEXT PRIMARY KEY,model TEXT,dataset TEXT,slot INTEGER,epochs INTEGER,benign INTEGER,attack INTEGER,total INTEGER,job TEXT);
@@ -271,10 +273,17 @@ class CentralModels:
             json.loads(m["config"])["shards"] if local_ds.sha256 == ds.sha256 else 1
         )
         slot = member["slot"] if shards > 1 else 0
+        with self.db() as db:
+            publication = db.execute("""SELECT p.owners FROM published p JOIN native_dataset n
+                                      ON n.dataset=p.dataset WHERE p.dataset=?""",(local_ds.id,)).fetchone()
+        owners=json.loads(publication[0]) if publication else None
+        if owners is not None and len(owners)<len(local.rows):
+            raise InputValidationError("Published source lacks row ownership records.")
         rows = {}
         for n, i in enumerate(allowed):
             key = tuple(local.rows[i])
-            if n % shards != slot or key in banned:
+            assigned=owners[i]==member["client"] if owners is not None else n % shards == slot
+            if not assigned or key in banned:
                 continue
             if key in rows and rows[key] != local.labels[i]:
                 raise InputValidationError(
@@ -378,7 +387,16 @@ class CentralModels:
             raise InputValidationError("Choose 2, 3, 4, 8 or 12 workers.")
         job = self.app.job_manager.submit(
             kind,
-            dedupe_key=kind + ":" + mid + ":" + p["base"] + ":" + ",".join(sorted(ids)),
+            dedupe_key=":".join(
+                (
+                    kind,
+                    mid,
+                    p["base"],
+                    p["action"],
+                    str(bool(p.get("encrypted"))),
+                    ",".join(sorted(ids)),
+                )
+            ),
             payload={**p, "model": mid},
         )
         with self.db() as db:
@@ -415,6 +433,7 @@ class CentralModels:
             batch_size=cfg["batch_size"],
         )
         with self.db() as db:
+            audit(db,"local training started",client=cid,organization=self.app.clients.get(cid).config.get("organization"),version=base,job=ctx.job_id)
             notice(db, "Local training started · " + cid + " · " + base)
         backend = KerasGRUBackend()
         if crypto:
@@ -487,6 +506,12 @@ class CentralModels:
                     ctx.job_id,
                 ),
             )
+            db.execute(
+                "INSERT INTO central_update_classes VALUES(?,?,?)",
+                (uid, labels.count(0), labels.count(1)),
+            )
+            for category in ("local training completed","client update received"):
+                audit(db,category,client=cid,organization=self.app.clients.get(cid).config.get("organization"),version=base,job=ctx.job_id,event=uid)
             notice(db, "Client contribution received · " + cid + " · " + digest)
         return uid, update, keys
 
@@ -551,8 +576,13 @@ class CentralModels:
             ds, raw, prep = reference = self.reference(m["id"])
             weights = self.weights(p["base"])
             backend = KerasGRUBackend()
-            before = compute_metrics(
-                prep.test_labels, backend.predict(weights, prep.test_rows)
+            scores = backend.predict(weights, prep.test_rows)
+            before = compute_metrics(prep.test_labels, scores)
+            matrix_before = dict(
+                zip(
+                    ("tp", "tn", "fp", "fn"),
+                    confusion_counts(prep.test_labels, [int(p > 0.5) for p in scores]),
+                )
             )
             initial = weight_digest(weights)
             ids = p["clients"]
@@ -681,8 +711,15 @@ class CentralModels:
                         raise ConflictError(combined.reason)
                     weights = list(combined.weights)
                 ctx.check_cancelled()
-                after = compute_metrics(
-                    prep.test_labels, backend.predict(weights, prep.test_rows)
+                scores = backend.predict(weights, prep.test_rows)
+                after = compute_metrics(prep.test_labels, scores)
+                matrix_after = dict(
+                    zip(
+                        ("tp", "tn", "fp", "fn"),
+                        confusion_counts(
+                            prep.test_labels, [int(p > 0.5) for p in scores]
+                        ),
+                    )
                 )
                 records.append(
                     dict(
@@ -714,6 +751,9 @@ class CentralModels:
                 hash_after=final_hash,
                 test_rows=len(prep.test_labels),
                 source_sha256=ds.sha256,
+                threshold=0.5,
+                matrix_before=matrix_before,
+                matrix_after=matrix_after,
             )
             result = dict(
                 model={"name": "keras_gru"},
@@ -790,6 +830,8 @@ class CentralModels:
                     "UPDATE central_update SET version=?,state='aggregated',body=NULL WHERE id=?",
                     [(version, u) for u in contributions],
                 )
+                for category in ("aggregation completed","candidate model generated","model validation passed" if passed else "model validation failed"):
+                    audit(db,category,version=version,job=ctx.job_id,event=exp.id)
                 notice(
                     db, "Aggregation completed · " + m["name"] + " · V" + str(number)
                 )

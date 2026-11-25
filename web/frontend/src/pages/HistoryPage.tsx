@@ -23,7 +23,7 @@ export function HistoryPage() {
   const datasets = useApi(() => api.listDatasets({ limit: 100 }), [])
   const jobs = useApi(() => api.listJobs({ limit: 200 }), [])
   const [filter, setFilter] = useState<Filter>('all')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(()=>new URLSearchParams(location.search).get("experiment"))
 
   const rows = experiments.data?.items ?? []
   const filtered = rows.filter((experiment) => {
@@ -31,7 +31,9 @@ export function HistoryPage() {
     if (filter === 'active') return isActiveStatus(experiment.status)
     return experiment.status === filter
   })
-  const selected = rows.find((experiment) => experiment.id === selectedId) ?? null
+  const listed = rows.find((experiment) => experiment.id === selectedId)
+  const linked = useApi(async () => selectedId && !listed ? api.getExperiment(selectedId) : null, [selectedId, Boolean(listed)])
+  const selected = listed ?? (linked.data?.id === selectedId ? linked.data : null)
 
   const experimentColumns: Column<ExperimentResponse>[] = [
     {

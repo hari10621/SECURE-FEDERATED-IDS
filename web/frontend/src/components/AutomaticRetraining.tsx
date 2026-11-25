@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Bell } from 'lucide-react'
-import { api, apiRequest } from '../lib/api'
+import { ApiError, api, apiRequest } from '../lib/api'
 import { describeError } from '../lib/format'
 import { useApi } from '../hooks/useApi'
 import { Card, CardBody, CardHeader } from './ui/Card'
@@ -23,6 +23,8 @@ function usePoll<T>(loader: () => Promise<T>, key = '') {
 }
 type Policy = {
   enabled: boolean
+  minimum_new_samples: number
+  minimum_clients: number
   minimum: number
   rounds: number
   epochs: number
@@ -202,10 +204,13 @@ export function AutomaticHistory({ id }: { id: string }) {
 export function PolicyPanel() {
   const state = usePoll(() => request<State>('status'))
   const [draft, setDraft] = useState<Policy | null>(null)
+  const [serverErrors, setServerErrors] = useState<Record<string, string>>({})
   const p = draft ?? state.data?.policy
   const action = useAction(state.reload)
   const numeric = {
     minimum: 'Verified attack threshold',
+    minimum_new_samples: 'Minimum new eligible samples',
+    minimum_clients: 'Minimum participating clients',
     rounds: 'Rounds',
     epochs: 'Local epochs',
     cooldown: 'Cooldown (seconds)',
@@ -214,11 +219,38 @@ export function PolicyPanel() {
     maximum_fpr: 'Maximum false-positive rate',
     allowed_f1_drop: 'Allowed F1 decrease',
   }
+  const limits = {
+    minimum: [1, 1000],
+    minimum_new_samples:[1,1000],
+    minimum_clients:[2,12],
+    rounds: [1, 100],
+    epochs: [1, 50],
+    cooldown: [0, 604800],
+    minimum_accuracy_gain: [-1, 1],
+    minimum_f1: [0, 1],
+    maximum_fpr: [0, 1],
+    allowed_f1_drop: [0, 1],
+  }
+  function fieldError(k: keyof typeof numeric, value: number) {
+    const [lo, hi] = limits[k]
+    return (
+      serverErrors[k] ||
+      (!Number.isFinite(value) ||
+      value < lo ||
+      value > hi ||
+      (hi > 1 && !Number.isInteger(value))
+        ? `Enter ${hi > 1 ? 'a whole number' : 'a fraction'} from ${lo} to ${hi}.`
+        : '')
+    )
+  }
+  const invalid =
+    p &&
+    (Object.keys(numeric) as (keyof typeof numeric)[]).some((k) =>
+      fieldError(k, p[k]),
+    )
   return (
     <Card className="mb-4">
-      <CardHeader
-        title="Automatic Retraining Policy"
-      />
+      <CardHeader title="Automatic Retraining Policy" />
       <CardBody className="space-y-3 text-sm">
         {p && (
           <>
@@ -258,19 +290,56 @@ export function PolicyPanel() {
                         ? 0.01
                         : 1
                     }
-                    value={p[k]}
-                    onChange={(e) =>
-                      setDraft({ ...p, [k]: Number(e.target.value) })
-                    }
+                    min={limits[k][0]}
+                    max={limits[k][1]}
+                    aria-invalid={Boolean(fieldError(k, p[k]))}
+                    value={Number.isFinite(p[k]) ? p[k] : ''}
+                    onChange={(e) => {
+                      setServerErrors((prev) => ({ ...prev, [k]: '' }))
+                      setDraft({ ...p, [k]: e.target.valueAsNumber })
+                    }}
                   />
+                  {fieldError(k, p[k]) && (
+                    <small className="block text-red-300">
+                      {fieldError(k, p[k])}
+                    </small>
+                  )}
                 </label>
               ))}
             </div>
             <Button
-              disabled={action.busy || !draft}
+              disabled={action.busy || !draft || Boolean(invalid)}
               onClick={() =>
                 action.act(async () => {
-                  await request('policy', p)
+                  try {
+                    await request('policy', p)
+                  } catch (e) {
+                    if (
+                      e instanceof ApiError &&
+                      e.status === 422 &&
+                      Array.isArray(e.details)
+                    ) {
+                      setServerErrors(
+                        Object.fromEntries(
+                          e.details
+                            .filter(
+                              (i) =>
+                                Array.isArray(i.loc) &&
+                                typeof i.msg === 'string',
+                            )
+                            .map((i) => [i.loc.at(-1), i.msg]),
+                        ),
+                      )
+                    }
+                    throw e
+                  }
+                  const saved = (await request<State>('status')).policy
+                  if (
+                    (Object.keys(p) as (keyof Policy)[]).some(
+                      (k) => p[k] !== saved[k],
+                    )
+                  )
+                    throw Error('Saved values changed. Refresh the policy.')
                   setDraft(null)
                 }, 'Policy saved')
               }
@@ -419,9 +488,7 @@ export function EventHistory({ clientId }: { clientId: string }) {
   const e = detail.data
   return (
     <Card>
-      <CardHeader
-        title="Security event history"
-      />
+      <CardHeader title="Security event history" />
       <CardBody className="space-y-3 text-sm">
         <Button disabled={!clientId || action.busy} onClick={replay}>
           Score training-partition attack sample
@@ -591,6 +658,7 @@ export function EventHistory({ clientId }: { clientId: string }) {
                 >
                   Verify sample
                 </Button>
+                {e.status!=='held-out' && <Button disabled={!evidence.trim()||action.busy} onClick={()=>action.act(()=>request('events/'+e.id+'/reject',{evidence}),'Sample excluded from training')}>Reject sample</Button>}
               </>
             )}
           </section>

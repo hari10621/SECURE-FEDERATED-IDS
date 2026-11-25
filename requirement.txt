@@ -1,0 +1,31 @@
+# SecureFed-IDS complete Python environment (Windows, Python 3.12).
+# From the repository root, run in the project virtual environment:
+#   python -m pip install -r requirement.txt
+
+# API, SQLite persistence, GRU training, preprocessing and data generation.
+-r web/backend/requirements-training.txt
+# The training manifest selects imbalanced-learn 0.12.x.
+scikit-learn>=1.3,<1.6
+
+# CKKS aggregation, passive packet capture and backend tests.
+-r web/backend/requirements-crypto.txt
+-r web/backend/requirements-capture.txt
+-r web/backend/requirements-dev.txt
+
+# Browser regression tests (also install Google Chrome).
+playwright
+
+# Standalone research scripts, plots and feature attribution.
+scipy
+matplotlib
+shap
+
+# Frontend: install Node.js with npm, then run from the repository root:
+#   npm.cmd ci --prefix web/frontend
+# npm reads the exact frontend dependency tree from web/frontend/package-lock.json.
+#
+# Optional system dependencies:
+# - Windows passive capture requires the Npcap driver.
+# - The separate Linux lab uses Mininet, Open vSwitch, openvswitch-testcontroller,
+#   iproute2, iputils-ping and openssl. The Ryu adapter requires a Ryu controller
+#   environment only when using that adapter. See memory.md for lab setup.

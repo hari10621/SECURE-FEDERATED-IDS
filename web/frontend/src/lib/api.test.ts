@@ -14,6 +14,14 @@ beforeEach(() => {
 })
 
 describe('apiRequest', () => {
+  it('preserves policy validation field names and messages', async () => {
+    const details = [{ loc: ['body','minimum_f1'], msg: 'Input should be less than or equal to 1' }]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      error: {code:'validation_error', message:'Invalid request', details},
+    },422)))
+    await expect(apiRequest('/api/v1/automation/policy',{method:'POST',body:{minimum_f1:90}}))
+      .rejects.toMatchObject({status:422,details,message:'minimum_f1 — Input should be less than or equal to 1'})
+  })
   it('parses a JSON response', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 'ok' }))
     vi.stubGlobal('fetch', fetchMock)

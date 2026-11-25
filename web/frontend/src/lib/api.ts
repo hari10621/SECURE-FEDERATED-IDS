@@ -55,7 +55,9 @@ function parseEnvelope(raw: string, status: number): ApiError {
     const payload = JSON.parse(raw) as Partial<ErrorEnvelope>
     const detail = payload.error
     if (detail && typeof detail.message === 'string') {
-      return new ApiError(detail.message, {
+      const issues = Array.isArray(detail.details) ? detail.details.map(issue =>
+        Array.isArray(issue.loc) && typeof issue.msg === 'string' ? issue.loc.filter((k: unknown)=>k!=='body').join('.')+' — '+issue.msg : '').filter(Boolean) : []
+      return new ApiError(issues.length ? issues.join('; ') : detail.message, {
         status,
         code: detail.code ?? 'request_failed',
         details: detail.details,

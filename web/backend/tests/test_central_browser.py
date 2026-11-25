@@ -132,6 +132,7 @@ def test_central_browser(tmp_path):
                     page.get_by_text(re.compile("Completed deploy for V1"))
                 ).to_be_visible(timeout=90000)
                 navigate("SDN Network")
+                page.get_by_label("Network engine").select_option("Linux Mininet")
                 page.get_by_label("Lab host", exact=True).select_option("h1")
                 page.get_by_label(
                     "Replay training partition for independent review"

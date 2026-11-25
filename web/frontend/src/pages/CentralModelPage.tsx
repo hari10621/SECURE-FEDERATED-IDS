@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { api, apiRequest } from '../lib/api'
+import { ModelAnalysis, Hash } from '../components/ModelAnalysis'
+import { ApiError, api, apiRequest } from '../lib/api'
 import { snapshot } from '../lib/sdn'
 import { useApi } from '../hooks/useApi'
 import { describeError } from '../lib/format'
@@ -15,14 +16,15 @@ const request = <T,>(path: string, body?: unknown) =>
     timeoutMs: 300000,
   })
 type Model = { id: string; name: string; reference: string; head: string }
-type Version = {
+export type Version = {
+  training_seconds?: number | null
   version: string
   number: number
   rounds: number
   parent: string | null
   state: string
-  sha256: string
-  weight_hash: string
+  sha256: string | null
+  weight_hash: string | null
   ts: number
   experiment: string | null
   validation: {
@@ -41,9 +43,10 @@ type Member = {
   attack: number
   pid: number | null
   status: string
+  job: string | null
   message: string | null
 }
-type Detail = Model & {
+export type Detail = Model & {
   deployed: string | null
   config: { architecture: string; algorithm: string; method: string }
   versions: Version[]
@@ -55,6 +58,8 @@ type Detail = Model & {
     base: string
     base_hash: string | null
     round_number: number | null
+    benign: number | null
+    attack: number | null
     count: number
     duration: number
     digest: string
@@ -62,8 +67,40 @@ type Detail = Model & {
     state: string
     version: string | null
   }[]
-  acks: { client: string; version: string; pid: number; ts: number }[]
-  retraining: { id: string; state: string }[]
+  acks: {
+    run: string
+    client: string
+    version: string
+    pid: number
+    ts: number
+  }[]
+  round_jobs: {
+    job: string
+    base: string
+    state: string
+    progress: number
+    message: string | null
+    created: string
+  }[]
+  retraining: {
+    detail: string
+    id: string
+    state: string
+    parent: string
+    candidate: string | null
+    job: string | null
+    experiment: string | null
+    started: string | null
+    finished: string | null
+    validation: { passed: boolean } | null
+    events: {
+      id: string
+      client: string
+      organization: string
+      label: number | null
+      verified: number | null
+    }[]
+  }[]
 }
 function Choices({
   label,
@@ -105,15 +142,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 const grid = 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
-const percent = (n: number | undefined) =>
-  n === undefined ? '—' : (n * 100).toFixed(2) + '%'
-const metricNames = [
-  ['accuracy', 'Accuracy'],
-  ['precision', 'Precision'],
-  ['recall', 'Recall'],
-  ['f1', 'F1'],
-  ['false_positive_rate', 'False-positive rate'],
-]
 function Table({ headers, rows }: { headers: string[]; rows: ReactNode[][] }) {
   return (
     <div className="overflow-x-auto">
@@ -191,7 +219,26 @@ export function CentralConsole({
       detail.reload()
       registered.reload()
     } catch (e) {
-      setMessage(describeError(e))
+      const conflict = e instanceof ApiError && e.status === 409
+      const existing = conflict
+        ? (e.details as { job_id?: string } | null)?.job_id
+        : null
+      if (existing) {
+        setJob(existing)
+        jobState.reload()
+        setMessage('This job is already queued or running.')
+      } else if (
+        conflict &&
+        mode === 'clients' &&
+        !client &&
+        (e.details as { client_id?: string } | null)?.client_id
+      ) {
+        const match = e.details as { client_id: string; organization: string }
+        setClient(match.client_id)
+        setOrg(match.organization)
+        registered.reload()
+        setMessage('Client already exists. Its record is selected.')
+      } else setMessage(describeError(e))
     } finally {
       setBusy(false)
     }
@@ -256,6 +303,15 @@ export function CentralConsole({
     />
   )
   const contributions = d?.contributions ?? []
+  const activeMemberJob = d?.clients.find(
+    (c) =>
+      ids.includes(c.client) &&
+      ['running', 'queued', 'cancellation_requested'].includes(c.status),
+  )?.job
+  useEffect(() => {
+    if (mode === 'rounds' && activeMemberJob && activeMemberJob !== job)
+      setJob(activeMemberJob)
+  }, [mode, activeMemberJob, job])
   const jobInfo = jobState.data
   return (
     <div className="space-y-4">
@@ -316,58 +372,62 @@ export function CentralConsole({
               )}
             </div>
             <details className="rounded-lg border border-line px-3 py-2">
-              <summary className="cursor-pointer text-sm font-medium text-muted">Model configuration</summary>
-              <div className={grid+' mt-3'}>              <Field label="Architecture">
-                <TextInput
-                  readOnly
-                  value="GRU 256 → 128 → 64 · 48 input features"
-                />
-              </Field>
-              <Field label="Aggregation algorithm">
-                <TextInput readOnly value="Sample-weighted FedAvg" />
-              </Field>
-              <Field label="Learning rate">
-                <TextInput
-                  type="number"
-                  step="0.0001"
-                  value={learning}
-                  onChange={(e) => setLearning(e.target.value)}
-                />
-              </Field>
-              <Field label="Batch size">
-                <TextInput
-                  type="number"
-                  value={batch}
-                  onChange={(e) => setBatch(e.target.value)}
-                />
-              </Field>
-              <Field label="Reference training shards">
-                <TextInput
-                  type="number"
-                  min="2"
-                  max="12"
-                  value={shards}
-                  onChange={(e) => setShards(e.target.value)}
-                />
-              </Field>
-              <Field label="Split seed">
-                <TextInput
-                  type="number"
-                  min="0"
-                  value={seed}
-                  onChange={(e) => setSeed(e.target.value)}
-                />
-              </Field>
-              <Field label="Holdout fraction">
-                <TextInput
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  max="0.99"
-                  value={holdout}
-                  onChange={(e) => setHoldout(e.target.value)}
-                />
-              </Field>
+              <summary className="cursor-pointer text-sm font-medium text-muted">
+                Model configuration
+              </summary>
+              <div className={grid + ' mt-3'}>
+                {' '}
+                <Field label="Architecture">
+                  <TextInput
+                    readOnly
+                    value="GRU 256 → 128 → 64 · 48 input features"
+                  />
+                </Field>
+                <Field label="Aggregation algorithm">
+                  <TextInput readOnly value="Sample-weighted FedAvg" />
+                </Field>
+                <Field label="Learning rate">
+                  <TextInput
+                    type="number"
+                    step="0.0001"
+                    value={learning}
+                    onChange={(e) => setLearning(e.target.value)}
+                  />
+                </Field>
+                <Field label="Batch size">
+                  <TextInput
+                    type="number"
+                    value={batch}
+                    onChange={(e) => setBatch(e.target.value)}
+                  />
+                </Field>
+                <Field label="Reference training shards">
+                  <TextInput
+                    type="number"
+                    min="2"
+                    max="12"
+                    value={shards}
+                    onChange={(e) => setShards(e.target.value)}
+                  />
+                </Field>
+                <Field label="Split seed">
+                  <TextInput
+                    type="number"
+                    min="0"
+                    value={seed}
+                    onChange={(e) => setSeed(e.target.value)}
+                  />
+                </Field>
+                <Field label="Holdout fraction">
+                  <TextInput
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    max="0.99"
+                    value={holdout}
+                    onChange={(e) => setHoldout(e.target.value)}
+                  />
+                </Field>
               </div>
             </details>
             <Button
@@ -433,7 +493,15 @@ export function CentralConsole({
                 <Choices
                   label="Registered client"
                   value={client}
-                  onChange={setClient}
+                  onChange={(id) => {
+                    setClient(id)
+                    setOrg(
+                      String(
+                        registered.data?.items.find((c) => c.id === id)?.config
+                          .organization ?? '',
+                      ),
+                    )
+                  }}
                   empty="Create new client"
                   options={(registered.data?.items ?? []).map((c) => [
                     c.id,
@@ -521,6 +589,11 @@ export function CentralConsole({
                       },
                     )
                     setJob(r.job ?? '')
+                    if (!client) {
+                      setName('')
+                      setOrg('')
+                      setHost('')
+                    }
                     datasets.reload()
                     hosts.reload()
                     return 'Assigned worker ' + r.client
@@ -588,6 +661,11 @@ export function CentralConsole({
               <Button
                 disabled={
                   busy ||
+                  Boolean(activeMemberJob) ||
+                  (jobInfo &&
+                    ['running', 'queued', 'cancellation_requested'].includes(
+                      jobInfo.status,
+                    )) === true ||
                   ids.length < (strategy === 'local' ? 1 : 2) ||
                   (base || d.head) !== d.head
                 }
@@ -614,9 +692,32 @@ export function CentralConsole({
           {d && mode === 'models' && v && (
             <>
               <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-lg bg-navy-950 p-3"><p className="text-sm font-medium">Deployed · {label(d.deployed)}</p><p className="text-xs text-muted">{d.config.architecture}</p></div>
-                <div className="rounded-lg bg-navy-950 p-3"><p className="text-xs text-muted">Connected workers</p><p className="text-lg font-semibold">{d.clients.filter(c=>c.pid).length}</p></div>
-                <div className="rounded-lg bg-navy-950 p-3"><p className="text-xs text-muted">Contributors to V{v.number}</p><p className="text-lg font-semibold">{new Set(contributions.filter(u=>u.version===v.version).map(u=>u.client)).size}</p></div>
+                <div className="rounded-lg bg-navy-950 p-3">
+                  <p className="text-sm font-medium">
+                    Deployed · {label(d.deployed)}
+                  </p>
+                  <p className="text-xs text-muted">{d.config.architecture}</p>
+                </div>
+                <div className="rounded-lg bg-navy-950 p-3">
+                  <p className="text-xs text-muted">Connected workers</p>
+                  <p className="text-lg font-semibold">
+                    {d.clients.filter((c) => c.pid).length}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-navy-950 p-3">
+                  <p className="text-xs text-muted">
+                    Contributors to V{v.number}
+                  </p>
+                  <p className="text-lg font-semibold">
+                    {
+                      new Set(
+                        contributions
+                          .filter((u) => u.version === v.version)
+                          .map((u) => u.client),
+                      ).size
+                    }
+                  </p>
+                </div>
               </div>
               <div className={grid}>
                 <Choices
@@ -633,46 +734,17 @@ export function CentralConsole({
                   onChange={setCompare}
                 />
               </div>
-              <p className="break-all text-sm">
-                V{v.number} · {v.state} · {v.rounds} training rounds ·{' '}
-                {new Date(v.ts * 1000).toLocaleString()}
-                <br />
-                Artifact SHA-256 · {v.sha256}
-                <br />
-                Weight hash · {v.weight_hash}
-              </p>
-              {other && (
-                <p className="break-all text-sm">
-                  V{other.number} weight hash · {other.weight_hash}
-                </p>
-              )}
-              {v.validation ? (
-                <>
-                  <p>
-                    Evaluation on {v.validation.test_rows} held-out records ·{' '}
-                    {v.validation.passed ? 'Passed' : 'Rejected'}
-                  </p>
-                  <Table
-                    headers={[
-                      'Metric',
-                      'Before',
-                      'After',
-                      'Comparison version',
-                    ]}
-                    rows={metricNames.map(([key, title]) => [
-                      title,
-                      percent(v.validation?.before[key]),
-                      percent(v.validation?.after[key]),
-                      percent(other?.validation?.after[key]),
-                    ])}
-                  />
-                </>
-              ) : (
-                <p>
-                  Initialized weights. Evaluation begins with the first training
-                  round.
-                </p>
-              )}
+              <ModelAnalysis
+                registered={registered.data?.total}
+                key={d.id}
+                d={d}
+                v={v}
+                base={other}
+                inspect={setVersion}
+              />
+              <h3 className="text-base font-semibold">
+                Deployment and synchronization
+              </h3>
               <div className="flex flex-wrap gap-2">
                 {(['deploy', 'rollback', 'sync'] as const).map((op) => (
                   <Button
@@ -703,25 +775,6 @@ export function CentralConsole({
                   </Button>
                 ))}
               </div>
-              <Table
-                headers={['Version', 'Parent', 'Training status', 'Created']}
-                rows={d.versions.map((x) => [
-                  'V' + x.number,
-                  label(x.parent),
-                  x.version === d.deployed
-                    ? 'Active'
-                    : x.state === 'deployed'
-                      ? 'Previously deployed'
-                      : x.state,
-                  new Date(x.ts * 1000).toLocaleString(),
-                ])}
-              />
-              <p>
-                Automatic retraining ·{' '}
-                {d.retraining
-                  .map((r) => r.state + ' ' + r.id.slice(0, 10))
-                  .join(', ') || 'No runs'}
-              </p>
               {d.acks.length > 0 && (
                 <Table
                   headers={[
@@ -758,7 +811,7 @@ export function CentralConsole({
               ])}
             />
           )}
-          {d && contributions.length > 0 && (
+          {mode !== 'models' && d && contributions.length > 0 && (
             <Table
               headers={[
                 'Client / organization',
@@ -773,11 +826,13 @@ export function CentralConsole({
               rows={contributions.map((u) => [
                 u.client + ' · ' + u.organization,
                 label(u.base) + ' → ' + label(u.version),
-                (u.round_number ?? '—') + ' · ' + (u.base_hash ?? '—'),
+                <span>
+                  {u.round_number} · <Hash value={u.base_hash} />
+                </span>,
                 u.count,
                 u.duration.toFixed(2),
-                u.local_hash,
-                u.digest,
+                <Hash value={u.local_hash} />,
+                <Hash value={u.digest} />,
                 u.state,
               ])}
             />
@@ -800,9 +855,7 @@ export function CentralConsole({
 export function CentralModelPage() {
   return (
     <>
-      <PageHeader
-        title="Central Model"
-      />
+      <PageHeader title="Central Model" />
       <CentralConsole mode="models" />
     </>
   )

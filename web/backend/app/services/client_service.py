@@ -64,7 +64,7 @@ class ClientService:
         with self.db.session() as session:
             existing = session.scalar(select(Client).where(Client.name == name))
             if existing is not None:
-                raise ConflictError(f"client already exists: {name}")
+                raise ConflictError(f"client already exists: {name}", details={"client_id": existing.id, "organization": existing.config.get("organization", "")})
             client = Client(
                 id=uuid.uuid4().hex,
                 name=name,

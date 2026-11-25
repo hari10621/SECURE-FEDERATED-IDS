@@ -1,0 +1,2 @@
+# Optional Windows IP-flow capture. Install the Npcap driver separately.
+scapy>=2.6,<3

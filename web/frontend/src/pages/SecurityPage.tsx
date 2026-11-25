@@ -1,3 +1,4 @@
+import { SecurityAudit } from '../components/SecurityAudit'
 import { EventHistory } from '../components/AutomaticRetraining'
 import { useState } from 'react'
 import { Alert } from '../components/ui/Alert'
@@ -55,7 +56,7 @@ export function SecurityPage() {
         <p>Transmission confirmed · worker PID {receipt.worker_pid} sent {receipt.feature_count} features to the central prediction service.</p>
         <p className="break-all">Scored by model {receipt.version}. This replay performed inference only. Training updates are reported in Overview and Experiment History.</p>
       </CardBody></Card>}
-    <EventHistory clientId={clientId} />
+    <EventHistory clientId={clientId} /><SecurityAudit/>
     <Card><CardHeader title="SDN lab detections" description={labEvents.error ?? labEvents.data?.reason}/>
       <CardBody>{labEvents.data?.items.length ? labEvents.data.items.map((event,i)=><p key={i} className="break-all py-1">
         {new Date(event.ts*1000).toLocaleString()} · {event.host} · {event.kind} · {event.result.label?'Attack':'Benign'} · {(event.result.prediction*100).toFixed(2)}% attack probability · model {event.result.version}

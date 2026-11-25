@@ -34,6 +34,10 @@ from .services.job_manager import JobHandler, JobManager
 from .services.job_service import JobService
 from .services.model_service import ModelService
 from .services.research_adapter import ResearchAdapter
+import os
+from .api import native_network
+from .services.native_network import NativeNetwork
+from .services.windows_capture import capture
 from .services.sdn_service import SDNService
 from .services.security_service import SecurityService
 from .services.simulation_service import SimulationService
@@ -79,6 +83,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=[
             "http://localhost:5173",
+            f"http://127.0.0.1:{int(os.getenv('SECUREFED_UI_PORT','5173'))}",
             "http://127.0.0.1:5173",
             "http://localhost:4173",
             "http://127.0.0.1:4173",
@@ -166,6 +171,8 @@ def create_app(
         models_service.automatic = automatic
         sdn_service.automatic = automatic
         application.state.central = CentralModels(application.state)
+        application.state.native_network = NativeNetwork(application.state)
+        job_manager.register_handler("windows_capture",lambda ctx,p: capture(application.state,ctx,p))
         automatic.worker.start()
         logger.info("SecureFed-IDS backend started in %s mode", settings.environment)
         try:
@@ -183,6 +190,7 @@ def create_app(
     app.include_router(health.router, prefix=settings.api_prefix)
     app.include_router(central.router,prefix=settings.api_prefix)
     app.include_router(automation.router,prefix=settings.api_prefix)
+    app.include_router(native_network.router, prefix=settings.api_prefix)
     app.include_router(sdn.router, prefix=settings.api_prefix)
     app.include_router(ips.router, prefix=settings.api_prefix)
     app.include_router(datasets.router, prefix=settings.api_prefix)
